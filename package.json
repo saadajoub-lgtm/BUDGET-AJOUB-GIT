@@ -16,6 +16,7 @@
     "deploy:web:apk": "npm run android:apk:debug -w apps/web && npm run copy:apk-public -w apps/web && npm run build -w apps/web && npx firebase-tools deploy --only hosting",
     "eas:android:apk": "npm run eas:build:apk -w apps/mobile",
     "github:android-apk:help": "node scripts/print-github-apk-instructions.cjs",
-    "github:init": "node scripts/init-git-for-github.cjs"
+    "github:init": "node scripts/init-git-for-github.cjs",
+    "github:push:lqtm": "push-lqtm.cmd"
   }
 }
