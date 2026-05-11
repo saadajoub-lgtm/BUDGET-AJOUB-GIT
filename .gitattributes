@@ -1,2 +1,4 @@
-# YAML CI : fin de ligne LF pour eviter un fichier mal indenté sur GitHub (workflow casse).
+# Fin de ligne LF pour YAML / scripts CI (evite workflow casse sur GitHub).
+* text=auto
 .github/**/*.yml text eol=lf
+.gitattributes text eol=lf
