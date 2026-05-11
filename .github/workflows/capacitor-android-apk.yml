@@ -33,11 +33,17 @@ jobs:
           distribution: "temurin"
           java-version: "17"
 
-      # Ne pas remplacer "tools platform-tools" : avec "packages" seuls, le SDK est incomplet et Gradle echoue.
-      - name: Android SDK (API 35 + build-tools)
+      # Inclure tools + platform-tools. Plateforme 35 obligatoire ; build-tools souvent complete par AGP si version absente.
+      - name: Android SDK (platform 35)
         uses: android-actions/setup-android@v4
         with:
-          packages: "tools platform-tools platforms;android-35 build-tools;35.0.0"
+          packages: "tools platform-tools platforms;android-35"
+
+      - name: Verifier SDK
+        run: |
+          echo "ANDROID_SDK_ROOT=${ANDROID_SDK_ROOT}"
+          ls -la "${ANDROID_SDK_ROOT}/platform-tools" || true
+          ls -la "${ANDROID_SDK_ROOT}/platforms/android-35" || true
 
       - name: Gradle cache
         uses: actions/cache@v4
@@ -58,8 +64,7 @@ jobs:
           npm run build -w apps/web
 
       - name: Capacitor sync
-        working-directory: apps/web
-        run: npx cap sync android
+        run: npm run cap:sync -w apps/web
 
       - name: Gradle sdk.dir
         run: |
@@ -74,11 +79,11 @@ jobs:
         run: |
           export ANDROID_HOME="${ANDROID_SDK_ROOT}"
           chmod +x gradlew
-          ./gradlew assembleDebug --no-daemon --stacktrace
+          ./gradlew assembleDebug --no-daemon --stacktrace --warning-mode all
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: budget-famille-ajoub-debug
-          path: apps/web/android/app/build/outputs/apk/debug/app-debug.apk
+          path: apps/web/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
