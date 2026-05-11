@@ -2,6 +2,12 @@
 chcp 65001 >nul
 cd /d "%~dp0"
 
+echo.
+echo ATTENTION : l'URL "saadajoub-lqtm" ^(avec Q^) donne souvent une page 404 : ce depot n'existe pas.
+echo Le depot avec le code et le workflow a jour est "saadajoub-lgtm" ^(avec G^).
+echo Pour ouvrir les Actions : double-clic sur ouvrir-github-actions.cmd
+echo.
+
 where git >nul 2>nul
 if errorlevel 1 (
   echo Git introuvable dans le PATH. Utilisez "C:\Program Files\Git\bin\git.exe" ou installez Git for Windows.
