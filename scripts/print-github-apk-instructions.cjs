@@ -2,6 +2,10 @@
 console.log(`
 APK Android (Capacitor) via GitHub Actions — sans Expo
 
+ATTENTION : verifiez l'URL GitHub (compte + nom du depot). Une seule lettre change tout
+  (ex. saadajoub-lgtm vs saadajoub-lqtm). Les correctifs CI doivent etre pousses sur le
+  MEME depot que celui ou vous ouvrez l'onglet Actions.
+
 0) Git installe ? Sinon : https://git-scm.com/download/win
    Puis : npm run github:init   (ou double-clic sur init-git-for-github.cmd)
 
