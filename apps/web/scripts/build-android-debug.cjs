@@ -1,6 +1,6 @@
 /**
  * Build web dist, sync into Android project, then assemble a debug APK (no Expo / no EAS).
- * Prérequis : JDK 17+ et Android SDK (ANDROID_HOME), ou Android Studio avec SDK installé.
+ * Prérequis : JDK 21+ (Capacitor 7) et Android SDK (ANDROID_HOME), ou Android Studio avec SDK installé.
  * Sortie : android/app/build/outputs/apk/debug/app-debug.apk
  */
 const { execSync } = require("child_process");

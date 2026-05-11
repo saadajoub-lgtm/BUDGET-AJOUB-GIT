@@ -27,11 +27,12 @@ jobs:
           cache: "npm"
           cache-dependency-path: package-lock.json
 
-      - name: JDK 17
+      # Capacitor 7 compile avec source release 21 : JDK 17 provoque "invalid source release: 21".
+      - name: JDK 21
         uses: actions/setup-java@v4
         with:
           distribution: "temurin"
-          java-version: "17"
+          java-version: "21"
 
       # Inclure tools + platform-tools. Plateforme 35 obligatoire ; build-tools souvent complete par AGP si version absente.
       - name: Android SDK (platform 35)
