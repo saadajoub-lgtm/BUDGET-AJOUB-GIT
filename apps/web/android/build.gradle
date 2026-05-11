@@ -27,3 +27,16 @@ allprojects {
 task clean(type: Delete) {
     delete rootProject.buildDir
 }
+
+// Capacitor 7 declare Java 21, mais les sources (ex. switch avec ->) compilent en 17.
+// Sur CI, une toolchain JDK < 21 provoquait "invalid source release: 21".
+subprojects { sub ->
+    sub.afterEvaluate {
+        if (sub.plugins.hasPlugin('com.android.library') || sub.plugins.hasPlugin('com.android.application')) {
+            sub.android.compileOptions {
+                sourceCompatibility JavaVersion.VERSION_17
+                targetCompatibility JavaVersion.VERSION_17
+            }
+        }
+    }
+}
