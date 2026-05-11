@@ -13,7 +13,7 @@ concurrency:
 
 jobs:
   android-debug-apk:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 45
 
     steps:
@@ -45,6 +45,12 @@ jobs:
           ls -la "${ANDROID_SDK_ROOT}/platform-tools" || true
           ls -la "${ANDROID_SDK_ROOT}/platforms/android-35" || true
 
+      # AGP 8.x a besoin de build-tools explicites sur certains runners.
+      - name: Android build-tools
+        run: |
+          yes | sdkmanager "build-tools;35.0.0" "build-tools;34.0.0" 2>/dev/null || true
+          ls -la "${ANDROID_SDK_ROOT}/build-tools" || true
+
       - name: Gradle cache
         uses: actions/cache@v4
         with:
@@ -56,7 +62,7 @@ jobs:
             ${{ runner.os }}-gradle-
 
       - name: Install monorepo dependencies
-        run: npm ci
+        run: npm ci --no-fund --no-audit
 
       - name: Build shared + web
         run: |

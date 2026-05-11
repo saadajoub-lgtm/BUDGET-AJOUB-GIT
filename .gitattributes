@@ -1,0 +1,2 @@
+# YAML CI : fin de ligne LF pour eviter un fichier mal indenté sur GitHub (workflow casse).
+.github/**/*.yml text eol=lf
