@@ -1,0 +1,1 @@
+{"root":["./src/appassets.ts","./src/main.tsx","./src/vite-env.d.ts","./src/lib/firebase/auth.ts","./src/lib/firebase/budget.ts","./src/lib/firebase/client.ts","./src/lib/firebase/realtime.ts","./src/lib/firestore/collections.ts","./src/ui/app.tsx","./src/ui/authgate.tsx","./src/ui/loginpage.tsx","./src/ui/registerpage.tsx","./src/ui/resetpasswordpage.tsx"],"version":"5.9.3"}

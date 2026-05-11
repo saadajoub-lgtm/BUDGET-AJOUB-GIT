@@ -1,0 +1,32 @@
+{
+  "expo": {
+    "name": "Budget C-LIGHT",
+    "slug": "budget-ajoub",
+    "version": "0.2.0",
+    "orientation": "portrait",
+    "updates": {
+      "enabled": false,
+      "checkAutomatically": "ON_LOAD",
+      "fallbackToCacheTimeout": 0,
+      "url": "https://u.expo.dev/f17cddd1-5cd4-439b-b934-6b5b3282f747"
+    },
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "extra": {
+      "firebaseApiKey": "AIzaSyCahRbO0llrtnOrE7-f3vU4XJ5shkG0BKM",
+      "firebaseAuthDomain": "budget-famille-ajoub.firebaseapp.com",
+      "firebaseProjectId": "budget-famille-ajoub",
+      "firebaseStorageBucket": "budget-famille-ajoub.firebasestorage.app",
+      "firebaseMessagingSenderId": "589059942317",
+      "firebaseAppId": "1:589059942317:web:70eb2302d5f3a616132324",
+      "eas": {
+        "projectId": "f17cddd1-5cd4-439b-b934-6b5b3282f747"
+      }
+    },
+    "android": {
+      "package": "com.clight.budget"
+    },
+    "ios": {}
+  }
+}

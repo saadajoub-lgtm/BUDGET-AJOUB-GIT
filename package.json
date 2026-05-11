@@ -1,0 +1,21 @@
+{
+  "name": "monthly-budget-app",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run build -w packages/shared && npm run dev -w apps/api & npm run dev -w apps/web",
+    "build": "npm run build -w packages/shared && npm run build -w apps/api && npm run build -w apps/web",
+    "firebase:init": "npx firebase-tools init",
+    "deploy:web": "npm run build -w apps/web && npx firebase-tools deploy --only hosting",
+    "deploy:firestore": "npx firebase-tools deploy --only firestore",
+    "apk:debug": "npm run android:apk:debug -w apps/web",
+    "deploy:web:apk": "npm run android:apk:debug -w apps/web && npm run copy:apk-public -w apps/web && npm run build -w apps/web && npx firebase-tools deploy --only hosting",
+    "eas:android:apk": "npm run eas:build:apk -w apps/mobile",
+    "github:android-apk:help": "node scripts/print-github-apk-instructions.cjs",
+    "github:init": "node scripts/init-git-for-github.cjs"
+  }
+}

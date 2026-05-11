@@ -1,0 +1,19 @@
+node_modules
+dist
+.env
+budget.db
+*.log
+apps/web/public/releases/*.apk
+apps/web/android/local.properties
+
+# Android / Gradle (Capacitor)
+apps/web/android/app/build
+apps/web/android/build
+apps/web/android/.gradle
+apps/web/android/capacitor-cordova-android-plugins/build
+
+# Outils / OS
+.DS_Store
+Thumbs.db
+.idea
+.vscode/*.log

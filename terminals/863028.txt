@@ -1,0 +1,12 @@
+---
+cwd: "C:\\Users\\hp\\.cursor\\projects\\empty-window"
+command: "npm.cmd run dev"
+started_at: 2026-05-06T14:27:04.898Z
+running_for_ms: 3        
+---
+
+---
+error: "Sandbox policy 'workspace_readwrite' is not supported on this system. Ensure the sandbox helper binary is available, or use 'insecure_none'. Reason: Windows sandbox helper only provides network proxy, not filesystem isolation"
+elapsed_ms: 11
+ended_at: 2026-05-06T14:27:04.909Z
+---

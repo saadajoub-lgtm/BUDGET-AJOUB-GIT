@@ -1,0 +1,42 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(budgetId) {
+      return signedIn() &&
+        get(/databases/$(database)/documents/budgets/$(budgetId)).data.ownerUid == request.auth.uid;
+    }
+
+    function isMemberByUid(budgetId) {
+      return signedIn() &&
+        exists(/databases/$(database)/documents/budgets/$(budgetId)/members/$(request.auth.uid));
+    }
+
+    function isMemberByInvitation(budgetId) {
+      return signedIn() &&
+        exists(
+          /databases/$(database)/documents/budgets/$(budgetId)/members/$(request.auth.uid)
+        ) == false;
+    }
+
+    match /budgets/{budgetId} {
+      allow read: if isOwner(budgetId) || isMemberByUid(budgetId);
+      allow create: if signedIn() && request.resource.data.ownerUid == request.auth.uid;
+      allow update, delete: if isOwner(budgetId);
+
+      match /members/{memberId} {
+        allow read: if isOwner(budgetId) || isMemberByUid(budgetId);
+        allow create: if isOwner(budgetId);
+        allow update: if isOwner(budgetId) || (signedIn() && memberId == request.auth.uid);
+        allow delete: if isOwner(budgetId);
+      }
+
+      match /{subCollection}/{docId} {
+        allow read, create, update, delete: if isOwner(budgetId) || isMemberByUid(budgetId);
+      }
+    }
+  }
+}

@@ -1,0 +1,6 @@
+---
+pid: 5488
+cwd: |
+  C:\Users\hp
+---
+PS C:\Users\hp>

@@ -1,0 +1,18 @@
+services:
+  - type: web
+    name: budget-ajoub-api
+    runtime: docker
+    dockerfilePath: ./apps/api/Dockerfile
+    plan: free
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 4000
+      - key: BUDGET_DB_PATH
+        value: /data/budget.db
+    disk:
+      name: budget-ajoub-api-data
+      mountPath: /data
+      sizeGB: 1

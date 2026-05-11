@@ -1,0 +1,78 @@
+# APK Android (Capacitor) sans Expo : build dans le cloud GitHub Actions.
+# Prérequis : dépôt sur GitHub (push ce fichier), puis Actions > ce workflow > Run workflow.
+# Récupération : onglet Actions > run terminé > Artifacts > budget-famille-ajoub-debug.apk
+
+name: Capacitor Android APK (debug)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: capacitor-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  android-debug-apk:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+          cache-dependency-path: package-lock.json
+
+      - name: JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "17"
+
+      - name: Android SDK (API 35 + build-tools)
+        uses: android-actions/setup-android@v4
+        with:
+          packages: "platforms;android-35 build-tools;35.0.0"
+
+      - name: Gradle cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: ${{ runner.os }}-gradle-${{ hashFiles('apps/web/android/**/*.gradle*', 'apps/web/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            ${{ runner.os }}-gradle-
+
+      - name: Install monorepo dependencies
+        run: npm ci
+
+      - name: Build shared + web
+        run: |
+          npm run build -w packages/shared
+          npm run build -w apps/web
+
+      - name: Capacitor sync
+        working-directory: apps/web
+        run: npx cap sync android
+
+      - name: Gradle sdk.dir
+        run: printf "sdk.dir=%s\n" "$ANDROID_SDK_ROOT" > apps/web/android/local.properties
+
+      - name: Assemble debug APK
+        working-directory: apps/web/android
+        run: |
+          export ANDROID_HOME="${ANDROID_SDK_ROOT}"
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon --stacktrace
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: budget-famille-ajoub-debug
+          path: apps/web/android/app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
