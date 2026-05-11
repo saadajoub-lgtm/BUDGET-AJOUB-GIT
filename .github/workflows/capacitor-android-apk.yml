@@ -45,10 +45,10 @@ jobs:
           ls -la "${ANDROID_SDK_ROOT}/platform-tools" || true
           ls -la "${ANDROID_SDK_ROOT}/platforms/android-35" || true
 
-      # AGP 8.x a besoin de build-tools explicites sur certains runners.
+      # AGP 8.x : installer les build-tools (sans "yes |" : avec pipefail, SIGPIPE -> code 141 -> echec CI).
       - name: Android build-tools
         run: |
-          yes | sdkmanager "build-tools;35.0.0" "build-tools;34.0.0" 2>/dev/null || true
+          sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "build-tools;35.0.0" "build-tools;34.0.0"
           ls -la "${ANDROID_SDK_ROOT}/build-tools" || true
 
       - name: Gradle cache
