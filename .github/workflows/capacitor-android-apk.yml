@@ -1,11 +1,16 @@
 # APK Android (Capacitor) sans Expo : build dans le cloud GitHub Actions.
 # Pas d'action android-actions/setup-android (evite Node 20 + versions figees sur de vieux runs).
-# Récupération : Actions > run terminé > Artifacts > budget-famille-ajoub-debug
+# Récupération : Actions > run terminé > Artifacts ; si l'option Release est cochée : Releases > lien direct app-debug.apk
 
 name: Capacitor Android APK (debug)
 
 on:
   workflow_dispatch:
+    inputs:
+      publier_release_github:
+        description: "Créer une Release GitHub avec l'APK (lien de téléchargement public)"
+        type: boolean
+        default: true
 
 concurrency:
   group: capacitor-apk-${{ github.ref }}
@@ -15,6 +20,8 @@ jobs:
   android-debug-apk:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
+    permissions:
+      contents: write
     env:
       # SDK preinstalle sur l'image GitHub Actions (ubuntu-22.04).
       ANDROID_SDK_ROOT: /usr/local/lib/android/sdk
@@ -140,3 +147,18 @@ jobs:
           name: budget-famille-ajoub-debug
           path: apps/web/android/app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
+
+      # Lien public du type : .../releases/download/v0.1.0-debug-<run>/app-debug.apk
+      - name: Publier une Release GitHub (APK partageable)
+        if: ${{ github.event.inputs.publier_release_github == 'true' }}
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v0.1.0-debug-${{ github.run_number }}
+          name: Budget Famille Ajoub — APK debug (#${{ github.run_number }})
+          body: |
+            APK **debug** généré automatiquement par GitHub Actions.
+
+            Fichier joint : `app-debug.apk` (installez hors Play Store si demandé).
+          files: apps/web/android/app/build/outputs/apk/debug/*.apk
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
