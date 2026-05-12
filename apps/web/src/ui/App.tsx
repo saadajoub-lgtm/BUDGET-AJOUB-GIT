@@ -2761,57 +2761,93 @@ function Charges({ monthId, dataRevision, accounts, notify }: { monthId: string;
   );
 }
 
-function History({ monthId, dataRevision }: { monthId: string; dataRevision: number }) {
-  const [rows, setRows] = useState<any[]>([]);
-  const [historyFilter, setHistoryFilter] = useState<"all" | "charge" | "resource">("all");
-  useEffect(() => {
-    if (!monthId) {
-      setRows([]);
-      return;
-    }
-    api.get(`/history/${monthId}`).then((r) => setRows(r.data));
-  }, [monthId, dataRevision]);
+type HistoryOpFilter = "all" | "charge" | "resource" | "payment" | "transfer";
+type HistoryExportMode = "current_month" | "all_data" | "charges_only" | "resources_only" | "justified";
 
-  const filteredRows = useMemo(() => {
-    if (historyFilter === "all") return rows;
-    return rows.filter((r) => r.operation_group === historyFilter);
-  }, [rows, historyFilter]);
+function historyDisplayKind(r: any): string {
+  const cat = String(r.category ?? "").toLowerCase();
+  if (String(r.operation_group ?? "") === "resource") return "Ressource";
+  if (cat === "transfert" || String(r.label ?? "").toLowerCase().includes("transfert")) return "Transfert";
+  if (cat === "paiement_espece") return "Paiement";
+  if (cat === "paiement_charge") return "Charge";
+  if (cat === "ajustement") return "Ajustement";
+  if (String(r.operation_group ?? "") === "charge") return "Charge";
+  return "Autre";
+}
 
-  const isJustifiedGap = (r: any) =>
-    String(r.category ?? "").toLowerCase() === "ajustement" && String(r.note ?? "").trim().length > 0;
+function historyRowMatchesFilter(r: any, f: HistoryOpFilter): boolean {
+  if (f === "all") return true;
+  const cat = String(r.category ?? "");
+  const og = String(r.operation_group ?? "");
+  if (f === "resource") return og === "resource";
+  if (f === "charge") return cat === "paiement_charge";
+  if (f === "payment") return cat === "paiement_charge" || cat === "paiement_espece";
+  if (f === "transfer") return cat === "transfert";
+  return true;
+}
 
-  const downloadPdf = (scope: "all" | "charge" | "resource" | "justified_gap") => {
-    const scopedRows =
-      scope === "all"
-        ? rows
-        : scope === "justified_gap"
-          ? rows.filter(isJustifiedGap)
-          : rows.filter((r) => r.operation_group === scope);
-    const popup = window.open("", "_blank");
-    if (!popup) return;
-    const now = new Date();
-    const generatedAt = now.toLocaleString("fr-FR");
-    const scopeLabel =
-      scope === "all"
-        ? "Toutes les operations"
-        : scope === "charge"
-          ? "Charges"
-          : scope === "resource"
-            ? "Ressources"
-            : "Ecarts justifies";
-    const lines = scopedRows
-      .map((r) => {
-        const date = formatDateDMY(String(r.created_at ?? ""));
-        const label = String(r.label ?? "-").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const category = String(r.category ?? "-").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const status = String(r.status ?? "-").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const note = String(r.note ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-        const amount = toMoney(Number(r.amount_cents ?? 0));
-        return `<tr><td>${date}</td><td>${label}</td><td>${category}</td><td>${status}</td><td>${note || "-"}</td><td style="text-align:right">${amount}</td></tr>`;
-      })
-      .join("");
+function historyAccountLabel(r: any): string {
+  const v = r.account_name ?? r.compte ?? r.account_label ?? r.accountName;
+  return v ? String(v) : "-";
+}
 
-    popup.document.write(`<!doctype html>
+function rowsForHistoryExport(rows: any[], mode: HistoryExportMode): any[] {
+  switch (mode) {
+    case "current_month":
+    case "all_data":
+      return rows;
+    case "charges_only":
+      return rows.filter((r) => String(r.category ?? "") === "paiement_charge");
+    case "resources_only":
+      return rows.filter((r) => String(r.operation_group ?? "") === "resource");
+    case "justified":
+      return rows.filter(isHistoryJustifiedGapRow);
+    default:
+      return rows;
+  }
+}
+
+function exportModeLabelFr(mode: HistoryExportMode): string {
+  switch (mode) {
+    case "current_month":
+      return "Mois actuel";
+    case "all_data":
+      return "Toutes les donnees (mois affiche)";
+    case "charges_only":
+      return "Charges uniquement";
+    case "resources_only":
+      return "Ressources uniquement";
+    case "justified":
+      return "Ecarts justifies";
+    default:
+      return "Export";
+  }
+}
+
+function isHistoryJustifiedGapRow(r: any) {
+  return String(r.category ?? "").toLowerCase() === "ajustement" && String(r.note ?? "").trim().length > 0;
+}
+
+function writeHistoryPdfWindow(scopedRows: any[], scopeLabel: string) {
+  const popup = window.open("", "_blank");
+  if (!popup) return;
+  const now = new Date();
+  const generatedAt = now.toLocaleString("fr-FR");
+  const lines = scopedRows
+    .map((r) => {
+      const date = formatDateDMY(String(r.created_at ?? ""));
+      const kind = String(historyDisplayKind(r)).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const label = String(r.label ?? "-").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const category = String(r.category ?? "-").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const status = String(r.status ?? "-").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const account = String(historyAccountLabel(r)).replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const note = String(r.note ?? "").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+      const amount = toMoney(Number(r.amount_cents ?? 0));
+      return `<tr><td>${date}</td><td>${kind}</td><td>${label}</td><td>${category}</td><td>${status}</td><td>${account}</td><td>${note || "-"}</td><td style="text-align:right">${amount}</td></tr>`;
+    })
+    .join("");
+
+  popup.document.write(`<!doctype html>
 <html lang="fr">
   <head>
     <meta charset="UTF-8" />
@@ -2821,13 +2857,13 @@ function History({ monthId, dataRevision }: { monthId: string; dataRevision: num
       h1 { margin: 0 0 6px; font-size: 20px; }
       .meta { margin-bottom: 14px; color: #555; font-size: 12px; }
       table { border-collapse: collapse; width: 100%; }
-      th, td { border: 1px solid #d0d7de; padding: 8px; font-size: 12px; }
+      th, td { border: 1px solid #d0d7de; padding: 6px; font-size: 11px; }
       th { background: #f6f8fa; text-align: left; }
       .empty { margin-top: 12px; color: #666; }
     </style>
   </head>
   <body>
-    <h1>Historique des operations - ${scopeLabel}</h1>
+    <h1>Historique des operations — ${scopeLabel}</h1>
     <div class="meta">Genere le ${generatedAt}</div>
     ${
       scopedRows.length
@@ -2835,9 +2871,11 @@ function History({ monthId, dataRevision }: { monthId: string; dataRevision: num
             <thead>
               <tr>
                 <th>Date</th>
-                <th>Libelle</th>
+                <th>Type</th>
+                <th>Nom</th>
                 <th>Categorie</th>
                 <th>Statut</th>
+                <th>Compte</th>
                 <th>Note</th>
                 <th>Montant</th>
               </tr>
@@ -2848,39 +2886,120 @@ function History({ monthId, dataRevision }: { monthId: string; dataRevision: num
     }
   </body>
 </html>`);
-    popup.document.close();
-    popup.focus();
-    popup.print();
+  popup.document.close();
+  popup.focus();
+  popup.print();
+}
+
+function History({ monthId, dataRevision }: { monthId: string; dataRevision: number }) {
+  const [rows, setRows] = useState<any[]>([]);
+  const [historyFilter, setHistoryFilter] = useState<HistoryOpFilter>("all");
+  const [search, setSearch] = useState("");
+  const [exportMode, setExportMode] = useState<HistoryExportMode>("current_month");
+
+  useEffect(() => {
+    if (!monthId) {
+      setRows([]);
+      return;
+    }
+    api.get(`/history/${monthId}`).then((r) => setRows(r.data));
+  }, [monthId, dataRevision]);
+
+  const filteredRows = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    return rows.filter((r) => {
+      if (!historyRowMatchesFilter(r, historyFilter)) return false;
+      if (!q) return true;
+      const blob = [r.label, r.type, r.category, r.note, r.status, historyDisplayKind(r), historyAccountLabel(r)]
+        .map((x) => String(x ?? "").toLowerCase())
+        .join(" ");
+      return blob.includes(q);
+    });
+  }, [rows, historyFilter, search]);
+
+  const runExportPdf = () => {
+    const scoped = rowsForHistoryExport(rows, exportMode);
+    writeHistoryPdfWindow(scoped, exportModeLabelFr(exportMode));
   };
 
   return (
-    <div className="stack">
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        <button type="button" className={historyFilter === "charge" ? "" : "secondary"} onClick={() => setHistoryFilter("charge")}>
-          Charges
-        </button>
-        <button type="button" className={historyFilter === "resource" ? "" : "secondary"} onClick={() => setHistoryFilter("resource")}>
-          Ressources
-        </button>
-        <button type="button" className={historyFilter === "all" ? "" : "secondary"} onClick={() => setHistoryFilter("all")}>
-          Toutes les operations
-        </button>
+    <div className="stack history-page">
+      <h2 className="history-title">Historique</h2>
+
+      <div className="history-toolbar card">
+        <div className="history-filters" role="tablist" aria-label="Filtrer les operations">
+          {(
+            [
+              ["all", "Tous"],
+              ["charge", "Charges"],
+              ["resource", "Ressources"],
+              ["payment", "Paiements"],
+              ["transfer", "Transferts"]
+            ] as const
+          ).map(([key, label]) => (
+            <button
+              key={key}
+              type="button"
+              className={historyFilter === key ? "" : "secondary"}
+              onClick={() => setHistoryFilter(key)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label className="history-search-label">
+          <span className="muted">Rechercher</span>
+          <input
+            type="search"
+            className="history-search-input"
+            placeholder="Nom, categorie, note…"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            autoComplete="off"
+          />
+        </label>
       </div>
-      <div className="row" style={{ gap: 8, flexWrap: "wrap", justifyContent: "flex-end" }}>
-        <button type="button" className="secondary" onClick={() => downloadPdf("charge")}>
-          Telecharger PDF Charges
-        </button>
-        <button type="button" className="secondary" onClick={() => downloadPdf("resource")}>
-          Telecharger PDF Ressources
-        </button>
-        <button type="button" className="secondary" onClick={() => downloadPdf("all")}>
-          Telecharger PDF Toutes operations
-        </button>
-        <button type="button" className="secondary" onClick={() => downloadPdf("justified_gap")}>
-          Telecharger PDF Ecarts justifies
-        </button>
+
+      <div className="history-export card">
+        <div className="muted history-export-title">Exporter l&apos;historique</div>
+        <div className="history-export-row">
+          <select className="history-export-select" value={exportMode} onChange={(e) => setExportMode(e.target.value as HistoryExportMode)}>
+            <option value="current_month">Exporter le mois actuel</option>
+            <option value="all_data">Exporter toutes les donnees</option>
+            <option value="charges_only">Exporter uniquement les charges</option>
+            <option value="resources_only">Exporter uniquement les ressources</option>
+            <option value="justified">Exporter les ecarts justifies</option>
+          </select>
+          <button type="button" className="secondary history-export-btn" onClick={runExportPdf}>
+            Telecharger (PDF)
+          </button>
+        </div>
       </div>
-      <List title="Historique des operations" rows={filteredRows} right={(r) => toMoney(Number(r.amount_cents ?? 0))} />
+
+      <div className="history-scroll">
+        {filteredRows.length === 0 ? (
+          <div className="muted history-empty">Aucune operation pour ce filtre.</div>
+        ) : (
+          filteredRows.map((r) => (
+            <div className="card history-row" key={r.id}>
+              <div className="history-row-top">
+                <span className="history-kind">{historyDisplayKind(r)}</span>
+                <strong className="history-amount">{toMoney(Number(r.amount_cents ?? 0))}</strong>
+              </div>
+              <div className="history-name">{String(r.label ?? r.type ?? "—")}</div>
+              <div className="history-meta">
+                <span>{formatDateDMY(String(r.created_at ?? ""))}</span>
+                <span className="muted"> · {historyAccountLabel(r)}</span>
+              </div>
+              <div className="history-meta muted">
+                {String(r.category ?? "—")}
+                {r.status ? ` · ${String(r.status)}` : ""}
+              </div>
+              {r.note ? <div className="history-note muted">{String(r.note)}</div> : null}
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
@@ -3130,9 +3249,10 @@ function QuickButtons({
 
   return (
     <>
-      <div className="fab-wrap">
+      <div className="fab-wrap" aria-label="Actions rapides">
         <button
-          className="fab plus"
+          type="button"
+          className="fab fab-plus plus"
           title="Bouton + : Ajouter une ressource recue ou prevue"
           onClick={() => {
             resetResourceQuickForm();
@@ -3144,7 +3264,8 @@ function QuickButtons({
           +
         </button>
         <button
-          className="fab minus"
+          type="button"
+          className="fab fab-minus minus"
           title="Bouton - : Ajouter une charge payee ou prevue"
           onClick={() => {
             resetChargeQuickForm();
@@ -3401,7 +3522,6 @@ export function App() {
         if (cancelled) return;
         await refreshMonths(newId || undefined);
         bumpDataRevision();
-        notify(`Mois ${formatMonthLabel(labelKey)} pret — charges et ressources liees si recurrentes`);
       } catch (err: any) {
         if (!cancelled) {
           notify(String(err?.response?.data?.message ?? err?.message ?? "Impossible de preparer ce mois"));
