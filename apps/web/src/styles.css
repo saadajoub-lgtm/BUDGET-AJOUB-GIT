@@ -1124,23 +1124,23 @@ button {
 
   .fab-wrap {
     right: 8px;
-    width: min(56px, 16vw);
+    width: min(58px, 16vw);
   }
 
   .fab-wrap .fab {
-    width: min(48px, 13vw);
-    height: min(48px, 13vw);
-    max-width: 56px;
-    max-height: 56px;
+    width: min(52px, 14vw);
+    height: min(52px, 14vw);
+    max-width: 58px;
+    max-height: 58px;
     font-size: 22px;
   }
 
   .fab-wrap .fab.fab-plus {
-    bottom: 155px;
+    bottom: 165px;
   }
 
   .fab-wrap .fab.fab-minus {
-    bottom: 82px;
+    bottom: 90px;
   }
 
   .modal {
