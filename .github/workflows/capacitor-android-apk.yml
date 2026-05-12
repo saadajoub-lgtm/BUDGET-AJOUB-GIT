@@ -20,6 +20,20 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      # sdkmanager (setup-android, --licenses) exige JDK 17+ ; l'image runner expose souvent Java 11 par defaut.
+      - name: JDK 21 (sdkmanager + Gradle)
+        id: setup-jdk
+        uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+
+      - name: Verifier JDK pour sdkmanager
+        run: |
+          echo "JAVA_HOME=${JAVA_HOME}"
+          java -version
+          javac -version
+
       - name: Node.js
         uses: actions/setup-node@v5
         with:
@@ -28,9 +42,11 @@ jobs:
           cache-dependency-path: package-lock.json
 
       # Ne pas demander le paquet sdkmanager "tools" (obsolete / erreur sdkmanager).
-      # v4 = runtime Node 24 (GitHub deprecie les actions en Node 20 ; v3.2.1 declenchait l'avertissement).
+      # v4 = runtime Node 24. JAVA_HOME explicite : certaines images ont Java 11 avant setup-java.
       - name: Android SDK (platform 35)
         uses: android-actions/setup-android@v4
+        env:
+          JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
         with:
           packages: "platform-tools platforms;android-35"
 
@@ -42,18 +58,13 @@ jobs:
 
       # AGP 8.x : installer les build-tools (sans "yes |" : avec pipefail, SIGPIPE -> code 141 -> echec CI).
       - name: Android build-tools
+        env:
+          JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
         run: |
           sdkmanager --sdk_root="${ANDROID_SDK_ROOT}" "build-tools;35.0.0" "build-tools;34.0.0"
           ls -la "${ANDROID_SDK_ROOT}/build-tools" || true
 
-      # Apres setup-android : PATH peut contenir un JDK du SDK ; on fixe explicitement JAVA_HOME pour Gradle.
-      - name: JDK 21 (pour Gradle)
-        uses: actions/setup-java@v5
-        with:
-          distribution: "temurin"
-          java-version: "21"
-
-      - name: Verifier Java pour Gradle
+      - name: Verifier Java avant Gradle
         run: |
           echo "JAVA_HOME=${JAVA_HOME}"
           java -version
@@ -90,6 +101,7 @@ jobs:
         working-directory: apps/web/android
         env:
           GRADLE_OPTS: "-Xmx4096m -XX:MaxMetaspaceSize=512m"
+          JAVA_HOME: ${{ steps.setup-jdk.outputs.path }}
         run: |
           export ANDROID_HOME="${ANDROID_SDK_ROOT}"
           export JAVA_HOME="${JAVA_HOME}"
