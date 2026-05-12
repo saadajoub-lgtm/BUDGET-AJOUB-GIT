@@ -27,11 +27,13 @@ jobs:
           cache: "npm"
           cache-dependency-path: package-lock.json
 
-      # Inclure tools + platform-tools. Plateforme 35 obligatoire ; build-tools souvent complete par AGP si version absente.
+      # Ne pas demander le paquet sdkmanager "tools" (obsolete / erreur avec cmdline-tools recents).
+      # v3.2.1 = runtime node20 (fiable sur ubuntu-22.04) ; meme zip cmdline-tools que v4 par defaut.
       - name: Android SDK (platform 35)
-        uses: android-actions/setup-android@v4
+        uses: android-actions/setup-android@v3.2.1
         with:
-          packages: "tools platform-tools platforms;android-35"
+          cmdline-tools-version: "14742923"
+          packages: "platform-tools platforms;android-35"
 
       - name: Verifier SDK
         run: |
