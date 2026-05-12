@@ -6,6 +6,11 @@
   background: linear-gradient(180deg, #f6f8ff 0%, #eef4ff 55%, #eaf7f5 100%);
 }
 
+html {
+  overflow-x: hidden;
+  -webkit-text-size-adjust: 100%;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -13,13 +18,62 @@
 body {
   margin: 0;
   background: transparent;
+  overflow-x: hidden;
+  width: 100%;
+  max-width: 100vw;
 }
 
 .layout {
   min-height: 100vh;
-  padding: 14px;
+  padding: clamp(8px, 2vw, 14px);
   max-width: 1200px;
+  width: 100%;
   margin: 0 auto;
+  overflow-x: hidden;
+}
+
+.app-main {
+  padding-bottom: 100px;
+}
+
+.app-header {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 8px;
+}
+
+.app-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
+.app-title {
+  margin: 0;
+  font-size: clamp(1.05rem, 2.2vw + 0.65rem, 1.45rem);
+  font-weight: 800;
+  line-height: 1.15;
+  letter-spacing: -0.02em;
+  color: #0f2044;
+  flex: 1;
+  min-width: 0;
+}
+
+.header-logout-btn {
+  flex-shrink: 0;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 10px;
+  white-space: nowrap;
+  max-width: 42%;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .topbar {
@@ -35,26 +89,33 @@ body {
   position: relative;
   display: flex;
   align-items: center;
-  gap: 10px;
+  justify-content: center;
+  gap: 8px;
   margin: 0 auto;
+  width: 100%;
+  max-width: min(360px, 100%);
+  flex-wrap: nowrap;
 }
 
 .month-label {
-  min-width: 180px;
+  min-width: 0;
+  flex: 1 1 auto;
+  max-width: min(200px, 52vw);
   text-align: center;
   text-transform: uppercase;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.06em;
   color: #0f2044;
   font-weight: 700;
   font-family: "Inter", "Segoe UI", system-ui, sans-serif;
+  font-size: clamp(11px, 2.8vw, 13px);
 }
 
 .month-label-btn {
   border: 1px solid #d8e2fa;
   border-radius: 999px;
   background: linear-gradient(180deg, #ffffff, #f4f8ff);
-  box-shadow: 0 8px 16px rgba(36, 64, 121, 0.12);
-  padding: 10px 18px;
+  box-shadow: 0 6px 12px rgba(36, 64, 121, 0.1);
+  padding: 8px 12px;
 }
 
 .month-label-btn:hover {
@@ -63,15 +124,16 @@ body {
 }
 
 .month-arrow {
-  width: 38px;
-  height: 38px;
+  width: 36px;
+  height: 36px;
+  flex-shrink: 0;
   border-radius: 999px;
   border: 1px solid #cad8fb;
   background: linear-gradient(180deg, #fefeff, #eaf1ff);
   color: #28437e;
-  font-size: 17px;
+  font-size: 15px;
   padding: 0;
-  box-shadow: 0 8px 14px rgba(32, 61, 121, 0.16);
+  box-shadow: 0 6px 12px rgba(32, 61, 121, 0.14);
   transition: transform 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
@@ -140,8 +202,8 @@ body {
 
 .accounts-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
+  gap: 10px;
 }
 
 .account-card {
@@ -244,11 +306,11 @@ body {
 
 .premium-charge {
   border: 1px solid #dfe8ff;
-  border-radius: 20px;
-  box-shadow: 0 12px 28px rgba(25, 56, 130, 0.1);
+  border-radius: 16px;
+  box-shadow: 0 8px 20px rgba(25, 56, 130, 0.08);
   transition: transform 180ms ease, box-shadow 180ms ease, border-color 180ms ease;
-  min-height: 270px;
-  height: 100%;
+  min-height: 0;
+  height: auto;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -262,8 +324,9 @@ body {
 
 .charge-head {
   align-items: flex-start;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
+  flex-wrap: wrap;
 }
 
 .charge-title-wrap {
@@ -312,9 +375,9 @@ body {
 
 .charge-values {
   gap: 3px;
-  flex: 0 0 auto;
-  min-width: 118px;
-  max-width: 132px;
+  flex: 0 1 auto;
+  min-width: 96px;
+  max-width: min(132px, 38vw);
 }
 
 .charge-kpi-label {
@@ -323,7 +386,7 @@ body {
 }
 
 .charge-kpi-main {
-  font-size: 16px;
+  font-size: clamp(14px, 3.2vw, 16px);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -413,22 +476,32 @@ body {
 }
 
 .charge-actions {
-  gap: 8px;
+  gap: 6px;
   flex-wrap: wrap;
   margin-top: auto;
   align-items: flex-end;
   min-width: 0;
+  width: 100%;
+  justify-content: flex-start;
 }
 
 .btn-action {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 8px 10px;
-  font-size: 12px;
-  border-radius: 10px;
+  justify-content: center;
+  gap: 4px;
+  padding: 7px 8px;
+  font-size: 11px;
+  border-radius: 9px;
   border: 1px solid transparent;
   transition: transform 140ms ease, box-shadow 140ms ease, filter 140ms ease;
+}
+
+@media (max-width: 560px) {
+  .btn-action {
+    flex: 1 1 calc(50% - 4px);
+    min-width: min(140px, 46%);
+  }
 }
 
 .btn-action:hover {
@@ -516,9 +589,15 @@ body {
 
 .tabs {
   display: flex;
-  gap: 10px;
-  overflow: auto;
-  padding-bottom: 10px;
+  gap: 6px;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 6px 0 8px;
+  margin: 0 -4px 6px;
+  padding-left: 4px;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: thin;
+  flex-wrap: nowrap;
 }
 
 .tabs a {
@@ -526,14 +605,23 @@ body {
   color: #234;
   background: #fff;
   border-radius: 999px;
-  padding: 9px 14px;
+  padding: 7px 11px;
   border: 1px solid #dce5ff;
+  font-size: clamp(11px, 2.6vw, 13px);
+  font-weight: 600;
+  white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 200px), 1fr));
+  gap: 10px;
+}
+
+.dashboard-metrics {
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 158px), 1fr));
+  gap: 10px;
 }
 
 .stack {
@@ -550,10 +638,12 @@ body {
 
 .card {
   background: white;
-  border-radius: 18px;
-  padding: 14px;
-  box-shadow: 0 10px 30px rgba(36, 63, 140, 0.1);
+  border-radius: 14px;
+  padding: 12px;
+  box-shadow: 0 8px 22px rgba(36, 63, 140, 0.08);
   border: 1px solid #dde7ff;
+  max-width: 100%;
+  min-width: 0;
 }
 
 .metric {
@@ -564,6 +654,8 @@ body {
 .metric-btn {
   text-align: left;
   width: 100%;
+  min-width: 0;
+  padding: 10px 12px;
   transition: transform 120ms ease, box-shadow 120ms ease;
 }
 
@@ -579,10 +671,10 @@ body {
 }
 
 .metric-icon {
-  font-size: 18px;
-  width: 34px;
-  height: 34px;
-  border-radius: 10px;
+  font-size: 16px;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
   background: rgba(255, 255, 255, 0.22);
   display: inline-flex;
   align-items: center;
@@ -592,12 +684,16 @@ body {
 
 .metric-label {
   opacity: 0.95;
+  font-size: clamp(11px, 2.4vw, 13px);
+  line-height: 1.2;
 }
 
 .metric-value {
-  font-size: 28px;
+  font-size: clamp(1.15rem, 4vw + 0.5rem, 1.65rem);
   font-weight: 700;
-  margin-top: 8px;
+  margin-top: 6px;
+  line-height: 1.15;
+  word-break: break-word;
 }
 
 .c1 { background: linear-gradient(135deg, #3677ff, #2554d9); }
@@ -626,23 +722,24 @@ body {
 
 .fab-wrap {
   position: fixed;
-  right: 16px;
-  bottom: 16px;
+  right: max(10px, env(safe-area-inset-right, 0px));
+  bottom: max(12px, env(safe-area-inset-bottom, 0px));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 8px;
   z-index: 40;
 }
 
 .fab {
-  width: 54px;
-  height: 54px;
+  width: 48px;
+  height: 48px;
   border: none;
   border-radius: 50%;
   color: #fff;
-  font-size: 28px;
+  font-size: 24px;
+  line-height: 1;
   cursor: pointer;
-  box-shadow: 0 10px 22px rgba(26, 30, 60, 0.25);
+  box-shadow: 0 8px 18px rgba(26, 30, 60, 0.22);
 }
 
 .plus {
@@ -791,27 +888,64 @@ button {
 }
 
 @media (max-width: 780px) {
-  .topbar h1 {
-    font-size: 20px;
-  }
-  .metric-value {
-    font-size: 24px;
-  }
-  .tabs {
-    padding-top: 6px;
-  }
-  .month-label {
-    min-width: 138px;
-    font-size: 12px;
-  }
-  .month-label-btn {
-    padding: 9px 12px;
-  }
-  .month-arrow {
-    width: 40px;
-    height: 40px;
-  }
   .accounts-grid {
     grid-template-columns: 1fr;
+  }
+
+  .dashboard-metrics {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 480px) {
+  .layout {
+    padding: 8px;
+  }
+
+  .app-main {
+    padding-right: 62px;
+    padding-bottom: 120px;
+  }
+
+  .stack {
+    gap: 8px;
+  }
+
+  .charge-title-wrap {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .charge-values {
+    flex: 1 1 100%;
+    max-width: none;
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .btn-action {
+    flex: 1 1 calc(50% - 3px);
+    min-width: calc(50% - 6px);
+    font-size: 10px;
+    padding: 8px 6px;
+  }
+
+  .charge-stat {
+    padding: 6px 8px;
+  }
+
+  .fab-wrap {
+    right: 8px;
+    bottom: max(10px, env(safe-area-inset-bottom, 0px));
+  }
+
+  .fab {
+    width: 44px;
+    height: 44px;
+    font-size: 22px;
+  }
+
+  .modal {
+    width: min(520px, calc(100vw - 20px));
   }
 }

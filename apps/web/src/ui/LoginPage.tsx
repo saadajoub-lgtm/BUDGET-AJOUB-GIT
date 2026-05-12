@@ -2,7 +2,6 @@ import { useState } from "react";
 import axios from "axios";
 import { Link, useNavigate } from "react-router-dom";
 import { firebaseLogin } from "../lib/firebase/auth";
-import { APK_DOWNLOAD_HREF } from "../appAssets";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || (import.meta.env.DEV ? "http://localhost:4000" : window.location.origin);
 const api = axios.create({ baseURL: API_BASE_URL, timeout: 8000 });
@@ -52,11 +51,6 @@ export function LoginPage() {
         <button onClick={submit}>Se connecter</button>
         <Link to="/register"><button className="secondary" type="button">Creer un compte</button></Link>
         <Link to="/reset-password"><button className="secondary" type="button">Mot de passe oublie</button></Link>
-        <p className="muted" style={{ marginTop: 12, textAlign: "center", fontSize: 13 }}>
-          <a href={APK_DOWNLOAD_HREF} download>
-            Telecharger l&apos;application Android (APK)
-          </a>
-        </p>
       </div>
     </div>
   );

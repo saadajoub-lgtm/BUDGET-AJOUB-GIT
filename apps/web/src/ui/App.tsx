@@ -5,7 +5,6 @@ import axios from "axios";
 import { io } from "socket.io-client";
 import { Car, Gamepad2, HeartPulse, Home, Pencil, ReceiptText, ShoppingBasket, Smartphone, Trash2, Wallet, Wifi } from "lucide-react";
 import { ACCOUNT_NAMES, RESOURCE_TYPES } from "@budget/shared";
-import { APK_DOWNLOAD_HREF } from "../appAssets";
 import { firebaseLogout } from "../lib/firebase/auth";
 import { publishSyncEvent, subscribeSyncEvents } from "../lib/firebase/realtime";
 import { ensurePersonalBudget } from "../lib/firebase/budget";
@@ -1635,7 +1634,7 @@ function Dashboard({ monthId, dataRevision }: { monthId: string; dataRevision: n
   };
   return (
     <>
-      <div className="grid">{cards.map((c) => <MetricCard key={c.label} {...c} onClick={() => onCardClick(c.label)} />)}</div>
+      <div className="grid dashboard-metrics">{cards.map((c) => <MetricCard key={c.label} {...c} onClick={() => onCardClick(c.label)} />)}</div>
       {historyOpen && (
         <div className="modal-backdrop" onClick={(e) => closeOnBackdropOnly(e, () => setHistoryOpen(false))}>
           <div className="modal card stack" onClick={stopModalPropagation} onMouseDown={stopModalPropagation} onPointerDown={stopModalPropagation}>
@@ -3528,30 +3527,45 @@ export function App() {
 
   return (
     <div className="layout">
-      <header className="topbar card">
-        <h1>Budget Mensuel</h1>
-        <div className="month-nav">
-          <button className="month-arrow month-arrow-prev" onClick={goPreviousMonth} disabled={!canNavigateMonths} title="Mois precedent">
-            <span>❮</span>
+      <header className="card app-header">
+        <div className="app-header-row">
+          <h1 className="app-title">Budget Mensuel</h1>
+          <button
+            type="button"
+            className="header-logout-btn"
+            onClick={async () => {
+              localStorage.removeItem("token");
+              await firebaseLogout();
+              setLoggedOut(true);
+              nav("/login");
+            }}
+          >
+            Déconnexion
           </button>
-          <button className="month-label month-label-btn" onClick={() => setShowMonthPicker((v) => !v)} title="Choisir rapidement un mois">
+        </div>
+        <div className="month-nav">
+          <button type="button" className="month-arrow month-arrow-prev" onClick={goPreviousMonth} disabled={!canNavigateMonths} title="Mois precedent">
+            <span aria-hidden="true">❮</span>
+          </button>
+          <button type="button" className="month-label month-label-btn" onClick={() => setShowMonthPicker((v) => !v)} title="Choisir rapidement un mois">
             {formatMonthLabel(displayedMonthLabel).toUpperCase()}
           </button>
-          <button className="month-arrow month-arrow-next" onClick={goNextMonth} disabled={!canNavigateMonths} title="Mois suivant">
-            <span>❯</span>
+          <button type="button" className="month-arrow month-arrow-next" onClick={goNextMonth} disabled={!canNavigateMonths} title="Mois suivant">
+            <span aria-hidden="true">❯</span>
           </button>
           {showMonthPicker && (
             <div className="month-picker card">
               <div className="jump-row">
                 <input type="month" value={jumpMonth} onChange={(e) => setJumpMonth(e.target.value)} />
-                <button onClick={jumpToMonth}>Aller</button>
+                <button type="button" onClick={jumpToMonth}>Aller</button>
               </div>
-              <button className="today-btn" onClick={goTodayMonth}>
+              <button type="button" className="today-btn" onClick={goTodayMonth}>
                 Aujourd'hui
               </button>
               <div className="month-picker-list">
                 {months.map((m) => (
                   <button
+                    type="button"
                     key={m.id}
                     className={`month-option ${normalizeMonthLabelKey(m.label) === displayedMonthLabel ? "active" : ""}`}
                     onClick={() => {
@@ -3566,21 +3580,6 @@ export function App() {
             </div>
           )}
         </div>
-        <div className="row" style={{ gap: 8, flexWrap: "wrap", alignItems: "center" }}>
-          <a className="secondary" href={APK_DOWNLOAD_HREF} download style={{ textDecoration: "none", fontSize: 14 }}>
-            App Android (APK)
-          </a>
-          <button
-            onClick={async () => {
-              localStorage.removeItem("token");
-              await firebaseLogout();
-              setLoggedOut(true);
-              nav("/login");
-            }}
-          >
-            Deconnexion
-          </button>
-        </div>
       </header>
 
       <nav className="tabs">
@@ -3591,7 +3590,7 @@ export function App() {
         <Link to="/historique">Historique</Link>
       </nav>
 
-      <main key={activeMonthLabel} className="month-fade">
+      <main key={activeMonthLabel} className="month-fade app-main">
         <Routes>
           <Route path="/" element={<Dashboard monthId={activeMonthId} dataRevision={dataRevision} />} />
           <Route path="/comptes" element={<Accounts monthId={activeMonthId} months={months} dataRevision={dataRevision} notify={notify} />} />
