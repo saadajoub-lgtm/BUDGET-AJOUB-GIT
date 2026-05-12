@@ -27,12 +27,11 @@ jobs:
           cache: "npm"
           cache-dependency-path: package-lock.json
 
-      # Ne pas demander le paquet sdkmanager "tools" (obsolete / erreur avec cmdline-tools recents).
-      # v3.2.1 = runtime node20 (fiable sur ubuntu-22.04) ; meme zip cmdline-tools que v4 par defaut.
+      # Ne pas demander le paquet sdkmanager "tools" (obsolete / erreur sdkmanager).
+      # v4 = runtime Node 24 (GitHub deprecie les actions en Node 20 ; v3.2.1 declenchait l'avertissement).
       - name: Android SDK (platform 35)
-        uses: android-actions/setup-android@v3.2.1
+        uses: android-actions/setup-android@v4
         with:
-          cmdline-tools-version: "14742923"
           packages: "platform-tools platforms;android-35"
 
       - name: Verifier SDK
