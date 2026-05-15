@@ -12,6 +12,7 @@ export function budgetDocCollections() {
     histories: collection(firestore, "budgets", budgetId, "histories"),
     categories: collection(firestore, "budgets", budgetId, "categories"),
     labels: collection(firestore, "budgets", budgetId, "labels"),
-    members: collection(firestore, "budgets", budgetId, "members")
+    members: collection(firestore, "budgets", budgetId, "members"),
+    export_logs: collection(firestore, "budgets", budgetId, "export_logs")
   };
 }

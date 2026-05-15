@@ -263,12 +263,18 @@ app.post("/transfers", requireAuth, (req, res) => {
   const from = getAccountById(body.data.fromAccountId);
   const to = getAccountById(body.data.toAccountId);
   if (!from || !to) return res.status(404).json({ message: "Compte introuvable" });
-  db.prepare("UPDATE accounts SET balance_cents = balance_cents - ? WHERE id = ?").run(body.data.amountCents, from.id);
-  db.prepare("UPDATE accounts SET balance_cents = balance_cents + ? WHERE id = ?").run(body.data.amountCents, to.id);
   const id = randomUUID();
-  db.prepare(
-    "INSERT INTO transfers (id, month_id, from_account_id, to_account_id, amount_cents, transfer_date, note) VALUES (?, ?, ?, ?, ?, ?, ?)"
-  ).run(id, body.data.monthId, from.id, to.id, body.data.amountCents, body.data.transferDate, body.data.note ?? "");
+  try {
+    db.transaction(() => {
+      db.prepare("UPDATE accounts SET balance_cents = balance_cents - ? WHERE id = ?").run(body.data.amountCents, from.id);
+      db.prepare("UPDATE accounts SET balance_cents = balance_cents + ? WHERE id = ?").run(body.data.amountCents, to.id);
+      db.prepare(
+        "INSERT INTO transfers (id, month_id, from_account_id, to_account_id, amount_cents, transfer_date, note) VALUES (?, ?, ?, ?, ?, ?, ?)"
+      ).run(id, body.data.monthId, from.id, to.id, body.data.amountCents, body.data.transferDate, body.data.note ?? "");
+    })();
+  } catch {
+    return res.status(500).json({ message: "Echec enregistrement du transfert" });
+  }
   broadcastSync();
   res.status(201).json({ id });
 });
@@ -276,9 +282,15 @@ app.post("/transfers", requireAuth, (req, res) => {
 app.delete("/transfers/:id", requireAuth, (req, res) => {
   const transfer = db.prepare("SELECT * FROM transfers WHERE id = ?").get(req.params.id) as any;
   if (!transfer) return res.status(404).json({ message: "Transfert introuvable" });
-  db.prepare("UPDATE accounts SET balance_cents = balance_cents + ? WHERE id = ?").run(transfer.amount_cents, transfer.from_account_id);
-  db.prepare("UPDATE accounts SET balance_cents = balance_cents - ? WHERE id = ?").run(transfer.amount_cents, transfer.to_account_id);
-  db.prepare("DELETE FROM transfers WHERE id = ?").run(req.params.id);
+  try {
+    db.transaction(() => {
+      db.prepare("UPDATE accounts SET balance_cents = balance_cents + ? WHERE id = ?").run(transfer.amount_cents, transfer.from_account_id);
+      db.prepare("UPDATE accounts SET balance_cents = balance_cents - ? WHERE id = ?").run(transfer.amount_cents, transfer.to_account_id);
+      db.prepare("DELETE FROM transfers WHERE id = ?").run(req.params.id);
+    })();
+  } catch {
+    return res.status(500).json({ message: "Echec suppression du transfert" });
+  }
   broadcastSync();
   res.json({ ok: true });
 });
@@ -698,12 +710,43 @@ app.post("/cash-payment", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
+app.get("/export-logs", requireAuth, (_req, res) => {
+  const rows = db
+    .prepare(
+      "SELECT id, month_id as monthId, mode, scope_label as scopeLabel, created_at as createdAt FROM export_logs ORDER BY datetime(created_at) DESC LIMIT 100"
+    )
+    .all();
+  res.json(rows);
+});
+
+app.post("/export-logs", requireAuth, (req, res) => {
+  const body = z
+    .object({
+      monthId: z.string(),
+      mode: z.string(),
+      scopeLabel: z.string()
+    })
+    .safeParse(req.body);
+  if (!body.success) return res.status(400).json(body.error.flatten());
+  const id = randomUUID();
+  const created = new Date().toISOString();
+  db.prepare("INSERT INTO export_logs (id, month_id, mode, scope_label, created_at) VALUES (?, ?, ?, ?, ?)").run(
+    id,
+    body.data.monthId,
+    body.data.mode,
+    body.data.scopeLabel,
+    created
+  );
+  res.status(201).json({ id, createdAt: created });
+});
+
 app.post("/local-reset", requireAuth, (_req, res) => {
   const clearResources = db.prepare("DELETE FROM resources");
   const clearCharges = db.prepare("DELETE FROM charges");
   const clearTransfers = db.prepare("DELETE FROM transfers");
   const clearCashHistory = db.prepare("DELETE FROM cash_history");
   const clearAdjustments = db.prepare("DELETE FROM account_adjustments");
+  const clearExportLogs = db.prepare("DELETE FROM export_logs");
   const resetAccounts = db.prepare("UPDATE accounts SET balance_cents = 0");
 
   const tx = db.transaction(() => {
@@ -712,6 +755,7 @@ app.post("/local-reset", requireAuth, (_req, res) => {
     clearTransfers.run();
     clearCashHistory.run();
     clearAdjustments.run();
+    clearExportLogs.run();
     resetAccounts.run();
   });
 

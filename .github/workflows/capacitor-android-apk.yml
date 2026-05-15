@@ -5,6 +5,9 @@
 name: Capacitor Android APK (debug)
 
 on:
+  push:
+    branches:
+      - main
   workflow_dispatch:
     inputs:
       publier_release_github:
@@ -150,7 +153,7 @@ jobs:
 
       # Lien public du type : .../releases/download/v0.1.0-debug-<run>/app-debug.apk
       - name: Publier une Release GitHub (APK partageable)
-        if: ${{ github.event.inputs.publier_release_github == 'true' }}
+        if: ${{ github.event_name == 'push' || github.event.inputs.publier_release_github == 'true' }}
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v0.1.0-debug-${{ github.run_number }}

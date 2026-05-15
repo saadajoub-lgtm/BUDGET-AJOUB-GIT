@@ -94,6 +94,14 @@ CREATE TABLE IF NOT EXISTS account_adjustments (
   adjustment_date TEXT NOT NULL,
   note TEXT
 );
+
+CREATE TABLE IF NOT EXISTS export_logs (
+  id TEXT PRIMARY KEY,
+  month_id TEXT NOT NULL,
+  mode TEXT NOT NULL,
+  scope_label TEXT NOT NULL,
+  created_at TEXT NOT NULL
+);
 `);
 
 function ensureColumn(table: string, column: string, sqlType: string) {

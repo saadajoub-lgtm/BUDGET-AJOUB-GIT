@@ -1,7 +1,7 @@
 <?xml version='1.0' encoding='utf-8'?>
 <resources>
-    <string name="app_name">Budget Ajoub</string>
-    <string name="title_activity_main">Budget Ajoub</string>
+    <string name="app_name">Budget Famille Ajoub</string>
+    <string name="title_activity_main">Budget Famille Ajoub</string>
     <string name="package_name">com.ajoub.budget</string>
     <string name="custom_url_scheme">com.ajoub.budget</string>
 </resources>

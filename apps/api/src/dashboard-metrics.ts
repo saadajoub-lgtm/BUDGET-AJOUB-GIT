@@ -111,7 +111,8 @@ export function computeDashboardForMonth(monthId: string): DashboardComputed {
   const chargesAVenir = sumChargesAVenirCents(monthId);
   const soldeDepartDuMois = soldeActuel;
   /** Toujours cohérent avec les cartes : mois courant uniquement. */
-  const soldeFinMoisPrevu = Math.round(soldeActuel + ressourcesAVenir - chargesAVenir);
+  const moisCourant = ordered[idx].label === new Date().toISOString().slice(0, 7);
+  const soldeFinMoisPrevu = Math.round((moisCourant ? soldeActuel : 0) + ressourcesAVenir - chargesAVenir);
 
   /** Référence : fin prévisionnelle « en chaîne » du mois chronologiquement précédent (logs / debug uniquement). */
   let soldePrevuMoisPrecedentUtilise: number | null = null;

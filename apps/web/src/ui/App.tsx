@@ -8,16 +8,19 @@ import { ACCOUNT_NAMES, RESOURCE_TYPES } from "@budget/shared";
 import { firebaseLogout } from "../lib/firebase/auth";
 import { publishSyncEvent, subscribeSyncEvents } from "../lib/firebase/realtime";
 import { ensurePersonalBudget } from "../lib/firebase/budget";
+import { useAppReady } from "./AppReadyContext";
 import {
   collection,
   deleteDoc,
   doc,
   getDoc,
   getDocs,
+  limit,
   orderBy,
   query,
   setDoc,
   where,
+  writeBatch,
   type DocumentReference
 } from "firebase/firestore";
 import { currentBudgetId, firestore } from "../lib/firebase/client";
@@ -337,7 +340,7 @@ async function getGlobalAccounts() {
   return Array.from(byName.values()).sort((a, b) => String(a.name ?? "").localeCompare(String(b.name ?? "")));
 }
 
-async function firestoreGet(url: string) {
+async function firestoreGet(url: string, opts?: { params?: Record<string, unknown> }) {
   await ensureFirestoreSeed();
   await migrateChargesAugustToMayOnce();
   await migrateAccountBalancesAugustToMayOnce();
@@ -392,17 +395,36 @@ async function firestoreGet(url: string) {
     const snap = await getDocs(query(budgetCollection("histories"), where("month_id", "==", monthId)));
     return snap.docs.map((d) => d.data());
   }
+  if (url.startsWith("/accounts-history/")) {
+    const monthId = url.split("/")[2]?.split("?")[0] ?? "";
+    const accountId = String(opts?.params?.accountId ?? "").trim();
+    return firestoreGetAccountsHistory(monthId, accountId);
+  }
+  if (url === "/export-logs" || url.startsWith("/export-logs")) {
+    const snap = await getDocs(query(budgetCollection("export_logs"), orderBy("created_at", "desc"), limit(100)));
+    return snap.docs.map((d) => {
+      const x = d.data() as any;
+      return {
+        id: x.id,
+        monthId: x.month_id ?? x.monthId,
+        mode: x.mode,
+        scopeLabel: x.scope_label ?? x.scopeLabel,
+        createdAt: x.created_at ?? x.createdAt
+      };
+    });
+  }
   if (url.startsWith("/dashboard/")) {
     const monthId = url.split("/")[2];
-    const [accounts, resourcesSnap, chargesSnap] = await Promise.all([
+    const [accounts, resourcesSnap, chargesSnap, monthSnap] = await Promise.all([
       getGlobalAccounts(),
       getDocs(query(budgetCollection("resources"), where("month_id", "==", monthId))),
-      getDocs(query(budgetCollection("charges"), where("month_id", "==", monthId)))
+      getDocs(query(budgetCollection("charges"), where("month_id", "==", monthId))),
+      getDocs(query(budgetCollection("months"), where("id", "==", monthId)))
     ]);
     const resources = resourcesSnap.docs.map((d) => d.data() as any);
     const charges = chargesSnap.docs.map((d) => d.data() as any);
     const isEpargneAccount = (a: any) => normalizeTextForCompare(String(a.name ?? "")) === "EPARGNE";
-    // Solde à jour et solde fin de mois : hors compte EPARGNE (affiché à part, aligné sur l’API SQLite).
+    // Solde sur les comptes : hors compte EPARGNE (affiché à part, aligné sur l'API SQLite).
     const soldeActuel = accounts
       .filter((a) => !isEpargneAccount(a))
       .reduce((s, a) => s + Number(a.balance_cents ?? 0), 0);
@@ -411,7 +433,8 @@ async function firestoreGet(url: string) {
       .filter((r) => isPrevueRowStatus(r.status))
       .reduce((s, r) => s + Math.round(Number(r.amount_cents ?? r.amountCents ?? 0)), 0);
     const chargesAVenir = charges.filter(isChargeAVenirForDashboard).reduce((s, c) => s + chargeRemainingDueCents(c), 0);
-    const soldeFinMoisPrevu = computeSoldeFinMoisPrevuFromKpis(soldeActuel, ressourcesAVenir, chargesAVenir);
+    const monthLabel = String((monthSnap.docs[0]?.data() as any)?.label ?? "");
+    const soldeFinMoisPrevu = computeSoldeFinMoisPrevuFromKpis(soldeActuel, ressourcesAVenir, chargesAVenir, isCurrentBudgetMonthLabel(monthLabel));
     return {
       soldeActuel,
       epargne,
@@ -749,6 +772,261 @@ async function firestoreUpdateResource(resourceId: string, payload: any) {
   return { ok: true };
 }
 
+async function resolveAccountForWrite(accountId: string): Promise<{ ref: DocumentReference; balance: number; name: string; id: string } | null> {
+  const trimmed = String(accountId ?? "").trim();
+  if (!trimmed) return null;
+  const accountRef = doc(budgetCollection("accounts"), trimmed);
+  const direct = await getDoc(accountRef);
+  if (direct.exists()) {
+    const d = direct.data() as any;
+    return {
+      ref: accountRef,
+      balance: Math.trunc(Number(d.balance_cents ?? 0)),
+      name: String(d.name ?? ""),
+      id: String(d.id ?? trimmed)
+    };
+  }
+  const qs = await getDocs(query(budgetCollection("accounts"), where("id", "==", trimmed)));
+  const d = qs.docs[0];
+  if (!d) return null;
+  const row = d.data() as any;
+  return {
+    ref: d.ref,
+    balance: Math.trunc(Number(row.balance_cents ?? 0)),
+    name: String(row.name ?? ""),
+    id: String(row.id ?? trimmed)
+  };
+}
+
+function normalizeTransferDateYmd(value: string): string {
+  const t = String(value ?? "").trim();
+  if (!t) return "";
+  if (t.includes("T")) return t.slice(0, 10);
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(t);
+  return m ? m[1] : t;
+}
+
+async function firestoreCreateTransfer(payload: any) {
+  await ensureFirestoreSeed();
+  const monthId = String(payload?.monthId ?? "").trim();
+  const fromAccountId = String(payload?.fromAccountId ?? "").trim();
+  const toAccountId = String(payload?.toAccountId ?? "").trim();
+  const amountCents = Math.round(Number(payload?.amountCents ?? 0));
+  const transferDateRaw = String(payload?.transferDate ?? "");
+  const note = String(payload?.note ?? "").trim();
+
+  if (!monthId) throw new Error("Mois manquant");
+  if (!fromAccountId || !toAccountId) throw new Error("Compte source ou destination manquant");
+  if (fromAccountId === toAccountId) throw new Error("Impossible de transferer vers le meme compte");
+  if (!Number.isFinite(amountCents) || amountCents <= 0) throw new Error("Montant obligatoire et superieur a zero");
+
+  let transferDate = normalizeTransferDateYmd(transferDateRaw);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(transferDate)) {
+    const now = new Date();
+    transferDate = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  }
+
+  const from = await resolveAccountForWrite(fromAccountId);
+  const to = await resolveAccountForWrite(toAccountId);
+  if (!from || !to) throw new Error("Compte source ou destination introuvable");
+
+  const nowIso = new Date().toISOString();
+  const tid = crypto.randomUUID();
+  const batch = writeBatch(firestore);
+
+  batch.set(from.ref, { balance_cents: from.balance - amountCents, updated_at: nowIso }, { merge: true });
+  batch.set(to.ref, { balance_cents: to.balance + amountCents, updated_at: nowIso }, { merge: true });
+
+  batch.set(doc(budgetCollection("transfers"), tid), {
+    id: tid,
+    month_id: monthId,
+    from_account_id: from.id,
+    to_account_id: to.id,
+    amount_cents: amountCents,
+    transfer_date: transferDate,
+    note,
+    created_at: nowIso
+  });
+
+  const label = `Transfert ${from.name} -> ${to.name}`;
+  batch.set(doc(budgetCollection("histories"), tid), {
+    id: tid,
+    month_id: monthId,
+    amount_cents: amountCents,
+    created_at: transferDate,
+    label,
+    category: "transfert",
+    status: "effectue",
+    note,
+    operation_group: "other",
+    from_account_id: from.id,
+    to_account_id: to.id,
+    account_name: from.name,
+    transfer_id: tid
+  });
+
+  await batch.commit();
+  return { id: tid };
+}
+
+async function firestoreDeleteTransfer(transferId: string) {
+  await ensureFirestoreSeed();
+  const tid = String(transferId ?? "").trim();
+  if (!tid) throw new Error("Transfert introuvable");
+
+  let tref = doc(budgetCollection("transfers"), tid);
+  let tsnap = await getDoc(tref);
+  let trow = tsnap.exists() ? (tsnap.data() as any) : null;
+  if (!trow?.id) {
+    const qsnap = await getDocs(query(budgetCollection("transfers"), where("id", "==", tid)));
+    const d = qsnap.docs[0];
+    if (!d) throw new Error("Transfert introuvable");
+    tref = d.ref;
+    trow = d.data() as any;
+  }
+
+  const amountCents = Math.round(Number(trow.amount_cents ?? 0));
+  if (!Number.isFinite(amountCents) || amountCents <= 0) throw new Error("Transfert invalide");
+
+  const from = await resolveAccountForWrite(String(trow.from_account_id ?? ""));
+  const to = await resolveAccountForWrite(String(trow.to_account_id ?? ""));
+  if (!from || !to) throw new Error("Compte introuvable pour annuler le transfert");
+
+  const nowIso = new Date().toISOString();
+  const batch = writeBatch(firestore);
+  batch.set(from.ref, { balance_cents: from.balance + amountCents, updated_at: nowIso }, { merge: true });
+  batch.set(to.ref, { balance_cents: to.balance - amountCents, updated_at: nowIso }, { merge: true });
+  batch.delete(tref);
+  const hRef = doc(budgetCollection("histories"), tid);
+  const hsnap = await getDoc(hRef);
+  if (hsnap.exists()) batch.delete(hRef);
+  await batch.commit();
+  return { ok: true };
+}
+
+async function firestoreGetAccountsHistory(monthId: string, accountFilter: string): Promise<any[]> {
+  await ensureFirestoreSeed();
+  if (!monthId) return [];
+
+  const accounts = await getGlobalAccounts();
+  const nameById = (id: string) => {
+    const row = accounts.find((a) => String(a.id) === String(id));
+    return row ? String(row.name ?? "") : "-";
+  };
+
+  const out: any[] = [];
+
+  const resourcesSnap = await getDocs(query(budgetCollection("resources"), where("month_id", "==", monthId)));
+  for (const d of resourcesSnap.docs) {
+    const r = d.data() as any;
+    if (String(r.status ?? "").toLowerCase() !== "recue") continue;
+    const accId = String(r.account_id ?? "");
+    if (accountFilter && accId !== accountFilter) continue;
+    out.push({
+      id: r.id,
+      date: r.expected_date,
+      type: "ressource_recue",
+      amount_cents: r.amount_cents,
+      delta_cents: r.amount_cents,
+      account_name: nameById(accId),
+      note: r.type,
+      source: "resource"
+    });
+  }
+
+  const chargesSnap = await getDocs(query(budgetCollection("charges"), where("month_id", "==", monthId)));
+  for (const d of chargesSnap.docs) {
+    const c = d.data() as any;
+    if (String(c.status ?? "").toLowerCase() !== "payee") continue;
+    const accId = String(c.account_id ?? "");
+    if (accountFilter && accId !== accountFilter) continue;
+    out.push({
+      id: c.id,
+      date: c.expected_date,
+      type: "charge_payee",
+      amount_cents: c.amount_cents,
+      delta_cents: -Math.round(Number(c.amount_cents ?? 0)),
+      account_name: nameById(accId),
+      note: c.label,
+      source: "charge"
+    });
+  }
+
+  const transfersSnap = await getDocs(query(budgetCollection("transfers"), where("month_id", "==", monthId)));
+  for (const d of transfersSnap.docs) {
+    const t = d.data() as any;
+    const fid = String(t.from_account_id ?? "");
+    const tidTo = String(t.to_account_id ?? "");
+    const amt = Math.round(Number(t.amount_cents ?? 0));
+    const noteSuffix = String(t.note ?? "").trim() ? ` - ${String(t.note)}` : "";
+    if (!accountFilter || fid === accountFilter) {
+      out.push({
+        id: t.id,
+        date: t.transfer_date,
+        type: "transfert_sortant",
+        amount_cents: amt,
+        delta_cents: -amt,
+        account_name: nameById(fid),
+        note: `Vers ${nameById(tidTo)}${noteSuffix}`,
+        source: "transfer"
+      });
+    }
+    if (!accountFilter || tidTo === accountFilter) {
+      out.push({
+        id: t.id,
+        date: t.transfer_date,
+        type: "transfert_entrant",
+        amount_cents: amt,
+        delta_cents: amt,
+        account_name: nameById(tidTo),
+        note: `Depuis ${nameById(fid)}${noteSuffix}`,
+        source: "transfer"
+      });
+    }
+  }
+
+  const paymentsSnap = await getDocs(query(budgetCollection("charge_payments"), where("month_id", "==", monthId)));
+  const chargeLabelCache = new Map<string, string>();
+  for (const d of paymentsSnap.docs) {
+    const p = d.data() as any;
+    const accId = String(p.account_id ?? "");
+    if (accountFilter && accId !== accountFilter) continue;
+    let chargeLabel = chargeLabelCache.get(String(p.charge_id ?? ""));
+    if (chargeLabel === undefined) {
+      const cdoc = await getDoc(doc(budgetCollection("charges"), String(p.charge_id ?? "")));
+      chargeLabel = cdoc.exists() ? String((cdoc.data() as any).label ?? "") : "";
+      chargeLabelCache.set(String(p.charge_id ?? ""), chargeLabel);
+    }
+    const notePart = String(p.note ?? "").trim() ? ` - ${String(p.note)}` : "";
+    out.push({
+      id: p.id,
+      date: p.payment_date ?? p.created_at,
+      type: "paiement_charge_progressive",
+      amount_cents: p.amount_cents,
+      delta_cents: -Math.round(Number(p.amount_cents ?? 0)),
+      account_name: nameById(accId),
+      note: `${chargeLabel}${notePart}`,
+      source: "charge_payment"
+    });
+  }
+
+  return out.sort((a, b) => String(b.date).localeCompare(String(a.date)));
+}
+
+async function firestoreCreateExportLog(payload: any) {
+  await ensureFirestoreSeed();
+  const id = crypto.randomUUID();
+  const created = new Date().toISOString();
+  await setDoc(doc(budgetCollection("export_logs"), id), {
+    id,
+    month_id: String(payload?.monthId ?? ""),
+    mode: String(payload?.mode ?? ""),
+    scope_label: String(payload?.scopeLabel ?? ""),
+    created_at: created
+  });
+  return { id, createdAt: created };
+}
+
 async function firestoreGetChargePayments(chargeId: string) {
   const paymentsSnap = await getDocs(query(budgetCollection("charge_payments"), where("charge_id", "==", chargeId)));
   const payments = paymentsSnap.docs.map((d) => d.data() as any);
@@ -983,7 +1261,7 @@ api.interceptors.response.use(
       const method = String(response.config.method ?? "").toLowerCase();
       const endpoint = normalizeEndpoint(String(response.config.url ?? ""));
       if (method === "get") {
-        const data = await firestoreGet(endpoint);
+        const data = await firestoreGet(endpoint, { params: (response.config.params ?? {}) as Record<string, unknown> });
         return {
           ...response,
           data
@@ -1092,6 +1370,35 @@ api.interceptors.response.use(
           data
         };
       }
+      if (method === "post" && endpoint === "/transfers") {
+        const payload = typeof response.config?.data === "string" ? JSON.parse(response.config.data) : (response.config?.data ?? {});
+        const data = await firestoreCreateTransfer(payload);
+        return {
+          ...response,
+          status: 201,
+          statusText: "Created",
+          data
+        };
+      }
+      if (method === "delete" && /^\/transfers\/[^/?#]+\/?$/.test(endpoint)) {
+        const transferId = extractEntityId(endpoint, "transfers");
+        if (!transferId) throw new Error("Transfert introuvable");
+        const data = await firestoreDeleteTransfer(transferId);
+        return {
+          ...response,
+          data
+        };
+      }
+      if (method === "post" && endpoint === "/export-logs") {
+        const payload = typeof response.config?.data === "string" ? JSON.parse(response.config.data) : (response.config?.data ?? {});
+        const data = await firestoreCreateExportLog(payload);
+        return {
+          ...response,
+          status: 201,
+          statusText: "Created",
+          data
+        };
+      }
     }
     const method = String(response.config.method ?? "").toLowerCase();
     if (["post", "put", "patch", "delete"].includes(method)) {
@@ -1105,7 +1412,7 @@ api.interceptors.response.use(
     const endpoint = normalizeEndpoint(String(config.url ?? ""));
     if (method === "get") {
       try {
-        const data = await firestoreGet(endpoint);
+        const data = await firestoreGet(endpoint, { params: (config.params ?? {}) as Record<string, unknown> });
         return {
           data,
           status: 200,
@@ -1280,6 +1587,52 @@ api.interceptors.response.use(
         // Fall through to original error.
       }
     }
+    if (method === "post" && endpoint === "/transfers") {
+      try {
+        const payload = typeof config?.data === "string" ? JSON.parse(config.data) : (config?.data ?? {});
+        const data = await firestoreCreateTransfer(payload);
+        return {
+          data,
+          status: 201,
+          statusText: "Created",
+          headers: {},
+          config
+        };
+      } catch {
+        // Fall through to original error.
+      }
+    }
+    if (method === "delete" && /^\/transfers\/[^/?#]+\/?$/.test(endpoint)) {
+      try {
+        const transferId = extractEntityId(endpoint, "transfers");
+        if (!transferId) throw new Error("Transfert introuvable");
+        const data = await firestoreDeleteTransfer(transferId);
+        return {
+          data,
+          status: 200,
+          statusText: "OK",
+          headers: {},
+          config
+        };
+      } catch {
+        // Fall through to original error.
+      }
+    }
+    if (method === "post" && endpoint === "/export-logs") {
+      try {
+        const payload = typeof config?.data === "string" ? JSON.parse(config.data) : (config?.data ?? {});
+        const data = await firestoreCreateExportLog(payload);
+        return {
+          data,
+          status: 201,
+          statusText: "Created",
+          headers: {},
+          config
+        };
+      } catch {
+        // Fall through to original error.
+      }
+    }
     return Promise.reject(error);
   }
 );
@@ -1318,9 +1671,16 @@ function chargeRemainingDueCents(row: any) {
   return Math.max(0, total - paid);
 }
 
-/** Toujours : solde à jour (hors épargne côté données) + ressources à venir du mois − charges à venir du même mois. */
-function computeSoldeFinMoisPrevuFromKpis(soldeActuel: number, ressourcesAVenir: number, chargesAVenir: number) {
-  return Math.round(soldeActuel + ressourcesAVenir - chargesAVenir);
+function isCurrentBudgetMonthLabel(monthLabel: string) {
+  return normalizeMonthLabelKey(monthLabel) === getMonthLabelKey(new Date());
+}
+
+/**
+ * Mois courant : solde sur les comptes + ressources à venir - charges à venir.
+ * Mois à venir : ressources à venir - charges à venir.
+ */
+function computeSoldeFinMoisPrevuFromKpis(soldeActuel: number, ressourcesAVenir: number, chargesAVenir: number, includeSoldeActuel: boolean) {
+  return Math.round((includeSoldeActuel ? soldeActuel : 0) + ressourcesAVenir - chargesAVenir);
 }
 
 type RecurrenceFrequency = "monthly" | "bimonthly" | "yearly";
@@ -1387,32 +1747,12 @@ function shouldGenerateRecurring(baseDateYmd: string, targetLabel: string, frequ
 function useMonth() {
   const [monthId, setMonthId] = useState<string>(() => localStorage.getItem("activeMonthId") ?? "");
   const [months, setMonths] = useState<any[]>([]);
+  const [monthsHydrated, setMonthsHydrated] = useState(false);
   const refreshMonths = useCallback(async (preferredMonthId?: string) => {
     try {
-      const r = await api.get("/months");
-      const sorted = [...r.data].sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at)));
-      const uniqueByLabel = new Map<string, any>();
-      for (const m of sorted) {
-        const lk = normalizeMonthLabelKey(m.label);
-        const cur = uniqueByLabel.get(lk);
-        if (!cur || String(m.starts_at).localeCompare(String(cur.starts_at)) > 0) {
-          uniqueByLabel.set(lk, m);
-        }
-      }
-      const uniqueMonths = Array.from(uniqueByLabel.values()).sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at)));
-      setMonths(uniqueMonths);
-      const targetId = preferredMonthId ?? monthId;
-      const hasTarget = targetId ? uniqueMonths.some((m) => m.id === targetId) : false;
-      if (preferredMonthId && hasTarget) {
-        setMonthId(preferredMonthId);
-      } else if ((!targetId || !hasTarget) && uniqueMonths[0]) {
-        setMonthId(uniqueMonths[0].id);
-      }
-      return uniqueMonths;
-    } catch {
       try {
-        const data = await firestoreGet("/months");
-        const sorted = [...(Array.isArray(data) ? data : [])].sort((a: any, b: any) => String(b.starts_at).localeCompare(String(a.starts_at)));
+        const r = await api.get("/months");
+        const sorted = [...r.data].sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at)));
         const uniqueByLabel = new Map<string, any>();
         for (const m of sorted) {
           const lk = normalizeMonthLabelKey(m.label);
@@ -1421,10 +1761,10 @@ function useMonth() {
             uniqueByLabel.set(lk, m);
           }
         }
-        const uniqueMonths = Array.from(uniqueByLabel.values()).sort((a: any, b: any) => String(b.starts_at).localeCompare(String(a.starts_at)));
+        const uniqueMonths = Array.from(uniqueByLabel.values()).sort((a, b) => String(b.starts_at).localeCompare(String(a.starts_at)));
         setMonths(uniqueMonths);
         const targetId = preferredMonthId ?? monthId;
-        const hasTarget = targetId ? uniqueMonths.some((m: any) => m.id === targetId) : false;
+        const hasTarget = targetId ? uniqueMonths.some((m) => m.id === targetId) : false;
         if (preferredMonthId && hasTarget) {
           setMonthId(preferredMonthId);
         } else if ((!targetId || !hasTarget) && uniqueMonths[0]) {
@@ -1432,9 +1772,34 @@ function useMonth() {
         }
         return uniqueMonths;
       } catch {
-        setMonths([]);
-        return [];
+        try {
+          const data = await firestoreGet("/months");
+          const sorted = [...(Array.isArray(data) ? data : [])].sort((a: any, b: any) => String(b.starts_at).localeCompare(String(a.starts_at)));
+          const uniqueByLabel = new Map<string, any>();
+          for (const m of sorted) {
+            const lk = normalizeMonthLabelKey(m.label);
+            const cur = uniqueByLabel.get(lk);
+            if (!cur || String(m.starts_at).localeCompare(String(cur.starts_at)) > 0) {
+              uniqueByLabel.set(lk, m);
+            }
+          }
+          const uniqueMonths = Array.from(uniqueByLabel.values()).sort((a: any, b: any) => String(b.starts_at).localeCompare(String(a.starts_at)));
+          setMonths(uniqueMonths);
+          const targetId = preferredMonthId ?? monthId;
+          const hasTarget = targetId ? uniqueMonths.some((m: any) => m.id === targetId) : false;
+          if (preferredMonthId && hasTarget) {
+            setMonthId(preferredMonthId);
+          } else if ((!targetId || !hasTarget) && uniqueMonths[0]) {
+            setMonthId(uniqueMonths[0].id);
+          }
+          return uniqueMonths;
+        } catch {
+          setMonths([]);
+          return [];
+        }
       }
+    } finally {
+      setMonthsHydrated(true);
     }
   }, [monthId]);
   useEffect(() => {
@@ -1443,7 +1808,7 @@ function useMonth() {
   useEffect(() => {
     if (monthId) localStorage.setItem("activeMonthId", monthId);
   }, [monthId]);
-  return { monthId, setMonthId, months, refreshMonths };
+  return { monthId, setMonthId, months, refreshMonths, monthsHydrated };
 }
 
 function toMoney(cents: number) {
@@ -1542,7 +1907,7 @@ function pushChargeSuggestion(key: string, value: string) {
   localStorage.setItem(key, JSON.stringify(arr.slice(-150)));
 }
 
-function Dashboard({ monthId, dataRevision }: { monthId: string; dataRevision: number }) {
+function Dashboard({ monthId, monthLabel, dataRevision }: { monthId: string; monthLabel: string; dataRevision: number }) {
   const [data, setData] = useState<any>(null);
   const [loadError, setLoadError] = useState("");
   const [historyTitle, setHistoryTitle] = useState("");
@@ -1588,9 +1953,9 @@ function Dashboard({ monthId, dataRevision }: { monthId: string; dataRevision: n
   const epargne = Math.round(Number(data.epargne ?? 0));
   const ressourcesAVenir = Math.round(Number(data.ressourcesAVenir ?? 0));
   const chargesAVenir = Math.round(Number(data.chargesAVenir ?? 0));
-  const soldeFinMoisPrevu = computeSoldeFinMoisPrevuFromKpis(soldeActuel, ressourcesAVenir, chargesAVenir);
+  const soldeFinMoisPrevu = computeSoldeFinMoisPrevuFromKpis(soldeActuel, ressourcesAVenir, chargesAVenir, isCurrentBudgetMonthLabel(monthLabel));
   const cards = [
-    { label: "Solde a jour", value: soldeActuel, icon: "💼", cls: "c1" },
+    { label: "Solde sur les comptes", value: soldeActuel, icon: "💼", cls: "c1" },
     { label: "Solde prevu fin de mois", value: soldeFinMoisPrevu, icon: "📅", cls: "c2" },
     { label: "Epargne", value: epargne, icon: "🛡️", cls: "c4" },
     { label: "Charges a venir", value: chargesAVenir, icon: "📉", cls: "c5" },
@@ -1622,8 +1987,30 @@ function Dashboard({ monthId, dataRevision }: { monthId: string; dataRevision: n
         const base = res.data;
         if (label === "Epargne") {
           setHistoryRows(base.filter((h: any) => String(h.account_name).toUpperCase() === "EPARGNE"));
-        } else if (label === "Solde a jour" || label === "Solde prevu fin de mois") {
+        } else if (label === "Solde sur les comptes") {
           setHistoryRows(base.filter((h: any) => String(h.account_name).toUpperCase() !== "EPARGNE"));
+        } else if (label === "Solde prevu fin de mois") {
+          const [resourcesRes, chargesRes] = await Promise.all([
+            api.get(`/resources/${monthId}`),
+            api.get(`/charges/${monthId}`)
+          ]);
+          const resourceRows = resourcesRes.data
+            .filter((r: any) => isPrevueRowStatus(r.status))
+            .map((r: any) => ({
+              date: r.expected_date,
+              type: "ressource_prevue",
+              note: r.type,
+              amount_cents: r.amount_cents
+            }));
+          const chargeRows = chargesRes.data
+            .filter(isChargeAVenirForDashboard)
+            .map((c: any) => ({
+              date: c.expected_date,
+              type: "charge_prevue",
+              note: c.label,
+              amount_cents: -chargeRemainingDueCents(c)
+            }));
+          setHistoryRows([...resourceRows, ...chargeRows].sort((a: any, b: any) => String(a.date ?? "").localeCompare(String(b.date ?? ""))));
         } else {
           setHistoryRows(base);
         }
@@ -1634,7 +2021,7 @@ function Dashboard({ monthId, dataRevision }: { monthId: string; dataRevision: n
   };
   return (
     <>
-      <div className="grid dashboard-metrics">{cards.map((c) => <MetricCard key={c.label} {...c} onClick={() => onCardClick(c.label)} />)}</div>
+      <div className="dashboard-metrics">{cards.map((c) => <MetricCard key={c.label} {...c} onClick={() => onCardClick(c.label)} />)}</div>
       {historyOpen && (
         <div className="modal-backdrop" onClick={(e) => closeOnBackdropOnly(e, () => setHistoryOpen(false))}>
           <div className="modal card stack" onClick={stopModalPropagation} onMouseDown={stopModalPropagation} onPointerDown={stopModalPropagation}>
@@ -1801,14 +2188,38 @@ function Accounts({ monthId, months, dataRevision, notify }: { monthId: string; 
   const submitTransfer = async (e: FormEvent) => {
     e.preventDefault();
     if (!transferAccount) return;
-    await api.post("/transfers", {
-      monthId,
-      fromAccountId: transferAccount.id,
-      toAccountId: transferForm.to,
-      amountCents: Math.round(Number(transferForm.amount) * 100),
-      transferDate: transferForm.date || new Date().toISOString(),
-      note: transferForm.note
-    });
+    const toId = String(transferForm.to ?? "").trim();
+    const amountCents = Math.round(Number(transferForm.amount) * 100);
+    if (!toId) {
+      notify("Choisissez un compte destination");
+      return;
+    }
+    if (toId === transferAccount.id) {
+      notify("Impossible de transferer vers le meme compte");
+      return;
+    }
+    if (!Number.isFinite(amountCents) || amountCents <= 0) {
+      notify("Montant obligatoire et superieur a zero");
+      return;
+    }
+    if (!rows.some((r) => String(r.id) === toId)) {
+      notify("Compte destination introuvable");
+      return;
+    }
+    try {
+      const res = await api.post("/transfers", {
+        monthId,
+        fromAccountId: transferAccount.id,
+        toAccountId: toId,
+        amountCents,
+        transferDate: transferForm.date || new Date().toISOString().slice(0, 10),
+        note: transferForm.note
+      });
+      if (!res?.data?.id) throw new Error("Reponse serveur invalide");
+    } catch (err: any) {
+      notify(String(err?.response?.data?.message ?? err?.message ?? "Echec du transfert"));
+      return;
+    }
     notify("Transfert effectue avec succes");
     setTransferAccount(null);
     setTransferForm({ to: "", amount: "", date: todayYmd(), note: "" });
@@ -1842,14 +2253,19 @@ function Accounts({ monthId, months, dataRevision, notify }: { monthId: string; 
 
   const deleteHistory = async (item: any) => {
     if (!window.confirm("Voulez-vous vraiment supprimer cette operation ?")) return;
-    if (item.source === "transfer") {
-      await api.delete(`/transfers/${item.id}`);
-      notify("Transfert supprime");
-    } else if (item.source === "adjustment") {
-      await api.delete(`/account-adjustments/${item.id}`);
-      notify("Modification manuelle supprimee");
-    } else {
-      notify("Suppression non disponible pour ce type");
+    try {
+      if (item.source === "transfer") {
+        await api.delete(`/transfers/${item.id}`);
+        notify("Transfert supprime");
+      } else if (item.source === "adjustment") {
+        await api.delete(`/account-adjustments/${item.id}`);
+        notify("Modification manuelle supprimee");
+      } else {
+        notify("Suppression non disponible pour ce type");
+        return;
+      }
+    } catch (err: any) {
+      notify(String(err?.response?.data?.message ?? err?.message ?? "Suppression impossible"));
       return;
     }
     if (historyAccount) await loadHistory(historyAccount.id);
@@ -1898,7 +2314,7 @@ function Accounts({ monthId, months, dataRevision, notify }: { monthId: string; 
             <h3>Historique - {historyAccount.name}</h3>
             {historyWithBalance.length === 0 && <div className="muted">Aucune operation sur ce compte.</div>}
             {historyWithBalance.map((h) => (
-              <div className="row card" key={`${h.source}-${h.id}`}>
+              <div className="row card" key={`${h.source}-${h.id}-${h.type}`}>
                 <div>
                   <strong>{h.account_name}</strong>
                   <div className="muted">{formatDateDMY(String(h.date))} · {h.type} · {h.note || "-"}</div>
@@ -2761,7 +3177,6 @@ function Charges({ monthId, dataRevision, accounts, notify }: { monthId: string;
   );
 }
 
-type HistoryOpFilter = "all" | "charge" | "resource" | "payment" | "transfer";
 type HistoryExportMode = "current_month" | "all_data" | "charges_only" | "resources_only" | "justified";
 
 function historyDisplayKind(r: any): string {
@@ -2773,17 +3188,6 @@ function historyDisplayKind(r: any): string {
   if (cat === "ajustement") return "Ajustement";
   if (String(r.operation_group ?? "") === "charge") return "Charge";
   return "Autre";
-}
-
-function historyRowMatchesFilter(r: any, f: HistoryOpFilter): boolean {
-  if (f === "all") return true;
-  const cat = String(r.category ?? "");
-  const og = String(r.operation_group ?? "");
-  if (f === "resource") return og === "resource";
-  if (f === "charge") return cat === "paiement_charge";
-  if (f === "payment") return cat === "paiement_charge" || cat === "paiement_espece";
-  if (f === "transfer") return cat === "transfert";
-  return true;
 }
 
 function historyAccountLabel(r: any): string {
@@ -2893,72 +3297,75 @@ function writeHistoryPdfWindow(scopedRows: any[], scopeLabel: string) {
 
 function History({ monthId, dataRevision }: { monthId: string; dataRevision: number }) {
   const [rows, setRows] = useState<any[]>([]);
-  const [historyFilter, setHistoryFilter] = useState<HistoryOpFilter>("all");
-  const [search, setSearch] = useState("");
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyError, setHistoryError] = useState("");
   const [exportMode, setExportMode] = useState<HistoryExportMode>("current_month");
+  const [exportLogRows, setExportLogRows] = useState<any[]>([]);
+  const [exportLogLoading, setExportLogLoading] = useState(false);
+  const [exportLogError, setExportLogError] = useState("");
 
-  useEffect(() => {
+  const loadHistoryRows = useCallback(async () => {
     if (!monthId) {
       setRows([]);
+      setHistoryError("");
       return;
     }
-    api.get(`/history/${monthId}`).then((r) => setRows(r.data));
-  }, [monthId, dataRevision]);
+    setHistoryLoading(true);
+    setHistoryError("");
+    try {
+      const r = await api.get(`/history/${monthId}`);
+      setRows(Array.isArray(r.data) ? r.data : []);
+    } catch (err: any) {
+      setRows([]);
+      setHistoryError(String(err?.response?.data?.message ?? err?.message ?? "Impossible de charger l'historique."));
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [monthId]);
 
-  const filteredRows = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (!historyRowMatchesFilter(r, historyFilter)) return false;
-      if (!q) return true;
-      const blob = [r.label, r.type, r.category, r.note, r.status, historyDisplayKind(r), historyAccountLabel(r)]
-        .map((x) => String(x ?? "").toLowerCase())
-        .join(" ");
-      return blob.includes(q);
-    });
-  }, [rows, historyFilter, search]);
+  const loadExportLogs = useCallback(async () => {
+    setExportLogLoading(true);
+    setExportLogError("");
+    try {
+      const r = await api.get("/export-logs");
+      setExportLogRows(Array.isArray(r.data) ? r.data : []);
+    } catch (err: any) {
+      setExportLogRows([]);
+      setExportLogError(String(err?.response?.data?.message ?? err?.message ?? "Impossible de charger l'historique des telechargements."));
+    } finally {
+      setExportLogLoading(false);
+    }
+  }, []);
 
-  const runExportPdf = () => {
+  useEffect(() => {
+    void loadHistoryRows();
+  }, [monthId, dataRevision, loadHistoryRows]);
+
+  useEffect(() => {
+    void loadExportLogs();
+  }, [dataRevision, loadExportLogs]);
+
+  const runExportPdf = async () => {
     const scoped = rowsForHistoryExport(rows, exportMode);
-    writeHistoryPdfWindow(scoped, exportModeLabelFr(exportMode));
+    const label = exportModeLabelFr(exportMode);
+    writeHistoryPdfWindow(scoped, label);
+    try {
+      if (monthId) {
+        await api.post("/export-logs", {
+          monthId,
+          mode: exportMode,
+          scopeLabel: label
+        });
+      }
+      await loadExportLogs();
+    } catch (err: any) {
+      console.error("export log", err);
+    }
   };
 
   return (
     <div className="stack history-page">
       <h2 className="history-title">Historique</h2>
-
-      <div className="history-toolbar card">
-        <div className="history-filters" role="tablist" aria-label="Filtrer les operations">
-          {(
-            [
-              ["all", "Tous"],
-              ["charge", "Charges"],
-              ["resource", "Ressources"],
-              ["payment", "Paiements"],
-              ["transfer", "Transferts"]
-            ] as const
-          ).map(([key, label]) => (
-            <button
-              key={key}
-              type="button"
-              className={historyFilter === key ? "" : "secondary"}
-              onClick={() => setHistoryFilter(key)}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
-        <label className="history-search-label">
-          <span className="muted">Rechercher</span>
-          <input
-            type="search"
-            className="history-search-input"
-            placeholder="Nom, categorie, note…"
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            autoComplete="off"
-          />
-        </label>
-      </div>
 
       <div className="history-export card">
         <div className="muted history-export-title">Exporter l&apos;historique</div>
@@ -2970,18 +3377,42 @@ function History({ monthId, dataRevision }: { monthId: string; dataRevision: num
             <option value="resources_only">Exporter uniquement les ressources</option>
             <option value="justified">Exporter les ecarts justifies</option>
           </select>
-          <button type="button" className="secondary history-export-btn" onClick={runExportPdf}>
+          <button type="button" className="secondary history-export-btn" onClick={() => void runExportPdf()}>
             Telecharger (PDF)
           </button>
         </div>
       </div>
 
+      <div className="card stack">
+        <div className="muted history-export-title">Historique des telechargements</div>
+        {exportLogLoading && <div>Chargement...</div>}
+        {!exportLogLoading && exportLogError ? <div className="error">{exportLogError}</div> : null}
+        {!exportLogLoading && !exportLogError && exportLogRows.length === 0 ? (
+          <div className="muted">Aucun telechargement pour le moment.</div>
+        ) : null}
+        {!exportLogLoading &&
+          exportLogRows.map((log) => (
+            <div className="row card" key={String(log.id ?? log.createdAt)}>
+              <div>
+                <strong>{String(log.scopeLabel ?? log.scope_label ?? "Export")}</strong>
+                <div className="muted">
+                  {formatDateDMY(String(log.createdAt ?? log.created_at ?? ""))} · {String(log.mode ?? "")}
+                </div>
+              </div>
+            </div>
+          ))}
+      </div>
+
       <div className="history-scroll">
-        {filteredRows.length === 0 ? (
-          <div className="muted history-empty">Aucune operation pour ce filtre.</div>
-        ) : (
-          filteredRows.map((r) => (
-            <div className="card history-row" key={r.id}>
+        {historyLoading && <div>Chargement de l&apos;historique...</div>}
+        {!historyLoading && historyError ? <div className="error">{historyError}</div> : null}
+        {!historyLoading && !historyError && rows.length === 0 ? (
+          <div className="muted history-empty">Aucune operation pour ce mois.</div>
+        ) : null}
+        {!historyLoading &&
+          !historyError &&
+          rows.map((r, i) => (
+            <div className="card history-row" key={String(r.id ?? `hist-${i}`)}>
               <div className="history-row-top">
                 <span className="history-kind">{historyDisplayKind(r)}</span>
                 <strong className="history-amount">{toMoney(Number(r.amount_cents ?? 0))}</strong>
@@ -2997,8 +3428,7 @@ function History({ monthId, dataRevision }: { monthId: string; dataRevision: num
               </div>
               {r.note ? <div className="history-note muted">{String(r.note)}</div> : null}
             </div>
-          ))
-        )}
+          ))}
       </div>
     </div>
   );
@@ -3252,19 +3682,6 @@ function QuickButtons({
       <div className="fab-wrap" aria-label="Actions rapides">
         <button
           type="button"
-          className="fab fab-plus plus"
-          title="Bouton + : Ajouter une ressource recue ou prevue"
-          onClick={() => {
-            resetResourceQuickForm();
-            setResourceTargetMonthId(monthId);
-            setResourceDuplicateAllMonths(false);
-            setOpen("resource");
-          }}
-        >
-          +
-        </button>
-        <button
-          type="button"
           className="fab fab-minus minus"
           title="Bouton - : Ajouter une charge payee ou prevue"
           onClick={() => {
@@ -3275,6 +3692,19 @@ function QuickButtons({
           }}
         >
           -
+        </button>
+        <button
+          type="button"
+          className="fab fab-plus plus"
+          title="Bouton + : Ajouter une ressource recue ou prevue"
+          onClick={() => {
+            resetResourceQuickForm();
+            setResourceTargetMonthId(monthId);
+            setResourceDuplicateAllMonths(false);
+            setOpen("resource");
+          }}
+        >
+          +
         </button>
       </div>
 
@@ -3432,7 +3862,9 @@ function QuickButtons({
 
 export function App() {
   const nav = useNavigate();
-  const { months, setMonthId, refreshMonths } = useMonth();
+  const { setAppReady } = useAppReady();
+  const splashBootstrapDoneRef = useRef(false);
+  const { months, setMonthId, refreshMonths, monthsHydrated } = useMonth();
   const monthEnsureInFlightRef = useRef<string | null>(null);
   const [loggedOut, setLoggedOut] = useState(false);
   const [accounts, setAccounts] = useState<any[]>([]);
@@ -3502,6 +3934,38 @@ export function App() {
   const monthIndex = months.findIndex((m) => normalizeMonthLabelKey(m.label) === normalizeMonthLabelKey(activeMonthLabel));
   const currentMonth = monthIndex >= 0 ? months[monthIndex] : null;
   const activeMonthId = currentMonth?.id ?? "";
+
+  useEffect(() => {
+    if (splashBootstrapDoneRef.current) return;
+    if (!monthsHydrated) return;
+    if (months.length > 0 && !activeMonthId) return;
+
+    let cancelled = false;
+    const run = async () => {
+      try {
+        if (activeMonthId) {
+          await Promise.all([
+            api.get(`/accounts/${activeMonthId}`),
+            api.get(`/charges/${activeMonthId}`),
+            api.get(`/resources/${activeMonthId}`),
+            api.get(`/history/${activeMonthId}`),
+            api.get(`/dashboard/${activeMonthId}`)
+          ]);
+        }
+      } catch {
+        /* Ne pas bloquer l'application si une requête échoue. */
+      } finally {
+        if (!cancelled) {
+          splashBootstrapDoneRef.current = true;
+          setAppReady(true);
+        }
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [monthsHydrated, months.length, activeMonthId, setAppReady]);
 
   /** Quand on navigue vers un mois (flèches / saut) sans document Firestore, le mois n’existait pas : pas d’id → pas de FAB, dashboard à zéro. On crée le mois (liaisons récurrentes gérées par firestoreCreateMonth). */
   useEffect(() => {
@@ -3649,13 +4113,15 @@ export function App() {
     <div className="layout">
       <header className="card app-header">
         <div className="app-header-row">
-          <h1 className="app-title">Budget Mensuel</h1>
+          <h1 className="app-title">Budget Famille Ajoub</h1>
           <button
             type="button"
             className="header-logout-btn"
             onClick={async () => {
               localStorage.removeItem("token");
               await firebaseLogout();
+              splashBootstrapDoneRef.current = false;
+              setAppReady(false);
               setLoggedOut(true);
               nav("/login");
             }}
@@ -3712,7 +4178,7 @@ export function App() {
 
       <main key={activeMonthLabel} className="month-fade app-main">
         <Routes>
-          <Route path="/" element={<Dashboard monthId={activeMonthId} dataRevision={dataRevision} />} />
+          <Route path="/" element={<Dashboard monthId={activeMonthId} monthLabel={displayedMonthLabel} dataRevision={dataRevision} />} />
           <Route path="/comptes" element={<Accounts monthId={activeMonthId} months={months} dataRevision={dataRevision} notify={notify} />} />
           <Route path="/ressources" element={<Resources monthId={activeMonthId} dataRevision={dataRevision} accounts={accounts} notify={notify} />} />
           <Route path="/charges" element={<Charges monthId={activeMonthId} dataRevision={dataRevision} accounts={accounts} notify={notify} />} />

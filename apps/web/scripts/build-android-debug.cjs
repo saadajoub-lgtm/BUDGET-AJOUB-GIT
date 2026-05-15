@@ -84,6 +84,8 @@ ensureAndroidLocalProperties();
 
 run("npm run build", webRoot);
 run("npx cap sync android", webRoot);
+// Après sync, Capacitor peut réécrire certaines ressources : régénère les mipmaps depuis icon-source.png/svg.
+run("npm run icons", webRoot);
 run(`${gradle} assembleDebug`, androidRoot);
 
 console.log("\nAPK debug :");

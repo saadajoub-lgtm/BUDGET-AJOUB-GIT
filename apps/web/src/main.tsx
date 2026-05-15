@@ -6,6 +6,8 @@ import { LoginPage } from "./ui/LoginPage";
 import { RegisterPage } from "./ui/RegisterPage";
 import { ResetPasswordPage } from "./ui/ResetPasswordPage";
 import { AuthGate } from "./ui/AuthGate";
+import { SplashScreen } from "./ui/SplashScreen";
+import { AppReadyContext } from "./ui/AppReadyContext";
 import "./styles.css";
 
 const BUILD_KEY = "app_build_id";
@@ -58,6 +60,7 @@ async function fetchRemoteBuildId() {
 function UpdateAwareApp() {
   const [updateAvailable, setUpdateAvailable] = React.useState(false);
   const [checking, setChecking] = React.useState(false);
+  const [appReady, setAppReady] = React.useState(false);
 
   const reloadToLatest = React.useCallback(async () => {
     localStorage.setItem(BUILD_KEY, __APP_BUILD_ID__);
@@ -119,22 +122,24 @@ function UpdateAwareApp() {
   }, [reloadToLatest, updateAvailable]);
 
   return (
-    <>
-      {updateAvailable && (
-        <div className="update-banner">
-          <span>Une nouvelle version est disponible.</span>
-          <button onClick={() => void reloadToLatest()}>Actualiser</button>
-        </div>
-      )}
+    <AppReadyContext.Provider value={{ setAppReady }}>
       <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/register" element={<RegisterPage />} />
-          <Route path="/reset-password" element={<ResetPasswordPage />} />
-          <Route path="/*" element={<AuthGate><App /></AuthGate>} />
-        </Routes>
+        <SplashScreen appReady={appReady}>
+          {updateAvailable && (
+            <div className="update-banner">
+              <span>Une nouvelle version est disponible.</span>
+              <button onClick={() => void reloadToLatest()}>Actualiser</button>
+            </div>
+          )}
+          <Routes>
+            <Route path="/login" element={<LoginPage />} />
+            <Route path="/register" element={<RegisterPage />} />
+            <Route path="/reset-password" element={<ResetPasswordPage />} />
+            <Route path="/*" element={<AuthGate><App /></AuthGate>} />
+          </Routes>
+        </SplashScreen>
       </BrowserRouter>
-    </>
+    </AppReadyContext.Provider>
   );
 }
 

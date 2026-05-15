@@ -29,7 +29,7 @@ export function AuthGate({ children }: { children: JSX.Element }) {
     return (
       <div className="auth">
         <div className="card auth-card">
-          <h1>Budget Ajoub</h1>
+          <h1>Budget Famille Ajoub</h1>
           <div className="muted">Verification de session...</div>
         </div>
       </div>

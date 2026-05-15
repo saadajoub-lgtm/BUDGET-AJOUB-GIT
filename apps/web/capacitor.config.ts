@@ -7,7 +7,7 @@ import type { CapacitorConfig } from "@capacitor/cli";
  */
 const config: CapacitorConfig = {
   appId: "com.ajoub.budget",
-  appName: "Budget Ajoub",
+  appName: "Budget Famille Ajoub",
   webDir: "dist",
   server: {
     url: "https://budget-famille-ajoub.web.app",
