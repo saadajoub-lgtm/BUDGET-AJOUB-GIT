@@ -21,8 +21,10 @@ export function ResetPasswordPage() {
   return (
     <div className="auth">
       <div className="card auth-card">
+        <img className="auth-logo" src="/app-icon.png" alt="" width={72} height={72} />
         <h1>Mot de passe oublie</h1>
-        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <p className="muted auth-subtitle">Recevez un lien pour recuperer votre acces.</p>
+        <input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         {error && <div className="error">{error}</div>}
         {message && <div className="muted">{message}</div>}
         <button onClick={submit}>Envoyer le lien</button>

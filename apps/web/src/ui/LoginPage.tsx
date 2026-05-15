@@ -44,13 +44,15 @@ export function LoginPage() {
   return (
     <div className="auth">
       <div className="card auth-card">
+        <img className="auth-logo" src="/app-icon.png" alt="" width={72} height={72} />
         <h1>Connexion</h1>
-        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <p className="muted auth-subtitle">Accedez au tableau de bord Budget Famille Ajoub.</p>
+        <input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input placeholder="Mot de passe" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         {error && <div className="error">{error}</div>}
         <button onClick={submit}>Se connecter</button>
         <Link to="/register"><button className="secondary" type="button">Creer un compte</button></Link>
-        <Link to="/reset-password"><button className="secondary" type="button">Mot de passe oublie</button></Link>
+        <Link to="/reset-password"><button className="secondary subtle" type="button">Mot de passe oublie</button></Link>
       </div>
     </div>
   );

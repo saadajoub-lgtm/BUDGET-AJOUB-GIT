@@ -52,8 +52,10 @@ export function RegisterPage() {
   return (
     <div className="auth">
       <div className="card auth-card">
+        <img className="auth-logo" src="/app-icon.png" alt="" width={72} height={72} />
         <h1>Creer un compte</h1>
-        <input placeholder="Email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        <p className="muted auth-subtitle">Creez un acces pour suivre le budget familial.</p>
+        <input placeholder="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
         <input placeholder="Mot de passe" type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
         {error && <div className="error">{error}</div>}
         <button onClick={submit}>Creer mon compte</button>

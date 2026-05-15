@@ -3,7 +3,28 @@ import { Link, Navigate, Route, Routes, useNavigate } from "react-router-dom";
 import { Capacitor } from "@capacitor/core";
 import axios from "axios";
 import { io } from "socket.io-client";
-import { Car, Gamepad2, HeartPulse, Home, Pencil, ReceiptText, ShoppingBasket, Smartphone, Trash2, Wallet, Wifi } from "lucide-react";
+import {
+  Banknote,
+  CalendarDays,
+  Car,
+  CreditCard,
+  Gamepad2,
+  HeartPulse,
+  Home,
+  Landmark,
+  Pencil,
+  PiggyBank,
+  ReceiptText,
+  ShieldCheck,
+  ShoppingBasket,
+  Smartphone,
+  Trash2,
+  TrendingDown,
+  TrendingUp,
+  UserRound,
+  Wallet,
+  Wifi
+} from "lucide-react";
 import { ACCOUNT_NAMES, RESOURCE_TYPES } from "@budget/shared";
 import { firebaseLogout } from "../lib/firebase/auth";
 import { publishSyncEvent, subscribeSyncEvents } from "../lib/firebase/realtime";
@@ -1955,11 +1976,11 @@ function Dashboard({ monthId, monthLabel, dataRevision }: { monthId: string; mon
   const chargesAVenir = Math.round(Number(data.chargesAVenir ?? 0));
   const soldeFinMoisPrevu = computeSoldeFinMoisPrevuFromKpis(soldeActuel, ressourcesAVenir, chargesAVenir, isCurrentBudgetMonthLabel(monthLabel));
   const cards = [
-    { label: "Solde sur les comptes", value: soldeActuel, icon: "💼", cls: "c1" },
-    { label: "Solde prevu fin de mois", value: soldeFinMoisPrevu, icon: "📅", cls: "c2" },
-    { label: "Epargne", value: epargne, icon: "🛡️", cls: "c4" },
-    { label: "Charges a venir", value: chargesAVenir, icon: "📉", cls: "c5" },
-    { label: "Ressources a venir", value: ressourcesAVenir, icon: "📈", cls: "c6" }
+    { label: "Solde sur les comptes", value: soldeActuel, icon: <Wallet size={20} />, cls: "c1" },
+    { label: "Solde prevu fin de mois", value: soldeFinMoisPrevu, icon: <CalendarDays size={20} />, cls: "c2" },
+    { label: "Epargne", value: epargne, icon: <ShieldCheck size={20} />, cls: "c4" },
+    { label: "Charges a venir", value: chargesAVenir, icon: <TrendingDown size={20} />, cls: "c5" },
+    { label: "Ressources a venir", value: ressourcesAVenir, icon: <TrendingUp size={20} />, cls: "c6" }
   ];
   const onCardClick = async (label: string) => {
     setHistoryTitle(`Historique - ${label}`);
@@ -2045,7 +2066,7 @@ function Dashboard({ monthId, monthLabel, dataRevision }: { monthId: string; mon
   );
 }
 
-function MetricCard({ label, value, icon, cls, onClick }: { label: string; value: number; icon: string; cls: string; onClick?: () => void }) {
+function MetricCard({ label, value, icon, cls, onClick }: { label: string; value: number; icon: JSX.Element; cls: string; onClick?: () => void }) {
   return (
     <button className={`card metric metric-btn ${cls}`} title="Cliquer pour voir le detail" onClick={onClick}>
       <div className="metric-top">
@@ -2059,14 +2080,14 @@ function MetricCard({ label, value, icon, cls, onClick }: { label: string; value
 
 function accountVisual(name: string) {
   const key = name.toUpperCase();
-  if (key.includes("BANK OF AFRICA")) return { icon: "🏦", cls: "av1" };
-  if (key.includes("SAHAM")) return { icon: "💳", cls: "av2" };
-  if (key.includes("MELANIE")) return { icon: "👩", cls: "av3" };
-  if (key.includes("SAAD 1")) return { icon: "👨", cls: "av4" };
-  if (key.includes("SAAD 2")) return { icon: "🧾", cls: "av5" };
-  if (key.includes("ESPECE")) return { icon: "💵", cls: "av6" };
-  if (key.includes("EPARGNE")) return { icon: "🛡️", cls: "av7" };
-  return { icon: "💼", cls: "av1" };
+  if (key.includes("BANK OF AFRICA")) return { icon: <Landmark size={18} />, cls: "av1" };
+  if (key.includes("SAHAM")) return { icon: <CreditCard size={18} />, cls: "av2" };
+  if (key.includes("MELANIE")) return { icon: <UserRound size={18} />, cls: "av3" };
+  if (key.includes("SAAD 1")) return { icon: <UserRound size={18} />, cls: "av4" };
+  if (key.includes("SAAD 2")) return { icon: <ReceiptText size={18} />, cls: "av5" };
+  if (key.includes("ESPECE")) return { icon: <Banknote size={18} />, cls: "av6" };
+  if (key.includes("EPARGNE")) return { icon: <PiggyBank size={18} />, cls: "av7" };
+  return { icon: <Wallet size={18} />, cls: "av1" };
 }
 
 function Accounts({ monthId, months, dataRevision, notify }: { monthId: string; months: any[]; dataRevision: number; notify: (msg: string) => void }) {
